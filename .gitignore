@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# LaTeX auxiliary files
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.xdv
+*.dvi
+*.4ct
+*.4tc
+*.idv
+*.lg
+*.tmp
+*.xref
+
+# Environment
+.env
+*.tar

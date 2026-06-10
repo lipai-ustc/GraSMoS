@@ -1,0 +1,43 @@
+{
+  "system": {
+    "name": "Au111",
+    "task": "global_search"
+  },
+  "potential": {
+    "type": "deepmd",
+    "model": "Au-PBE-novdw-v2.pb"
+  },
+  "monte_carlo": {
+    "steps": 1000,
+    "temperature": 500
+  },
+  "climbing": {
+    "random_direction": {
+      "mode": ["thermo","atomic"],
+      "ratio": [[[0.05,0.95],0.5],[[0.1,0.9],0.5]],
+      "rotation_param": 20,
+      "AE_factor": 200
+    },
+    "gaussian":{
+      "height": 5,
+      "Nmax": 20
+    },
+    "displace": {
+      "average_dr": 0.1,
+      "max_dr": 0.2
+    }
+  },
+  "optimizer": {
+    "max_steps": 100,
+    "fmax": 0.02
+  },
+  "mobile_control": {
+    "mode": "all"
+  },
+  "output": {
+    "directory": "cosmos_output",
+    "rd_xyz": true,
+    "debug": false
+  }
+}
+

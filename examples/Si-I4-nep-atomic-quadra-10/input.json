@@ -1,0 +1,43 @@
+{
+  "system": {
+    "name": "Si-I4",
+    "task": "global_search"
+  },
+  "potential": {
+    "type": "nep",
+    "model": "Si.txt"
+  },
+  "monte_carlo": {
+    "steps": 200,
+    "temperature": 500
+  },
+  "climbing": {
+    "random_direction": {
+      "mode": ["thermo","atomic"],
+      "ratio": [[[0.1,0.9],0.5],[[0.2,0.8],0.5]],
+      "rotation_param": 10
+    },
+    "gaussian":{
+      "height": 0.1,
+      "width": 0.1,
+      "Nmax": 20
+    }
+  },
+  "optimizer": {
+    "max_steps": 100,
+    "fmax": 0.05
+  },
+  "mobile_control": {
+    "mode": "region",
+    "region_type":"sphere",
+    "center":   "center",
+    "radius":6,
+    "wall_strength": 10.0,
+    "wall_offset": 2.0
+  },
+  "output": {
+    "directory": "cosmos_output",
+    "rd_xyz": true,
+    "debug": false
+  }
+}

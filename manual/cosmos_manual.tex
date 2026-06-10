@@ -1,0 +1,883 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{tcolorbox}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\geometry{margin=1in}
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\thepage}
+\lhead{GraSMoS User Manual}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    citecolor=green,
+    pdftitle={GraSMoS User Manual},
+    pdfauthor={GraSMoS Development Team},
+}
+
+\lstdefinestyle{jsonStyle}{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    backgroundcolor=\color{gray!10},
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+    commentstyle=\color{green!50!black},
+    morestring=[b]",
+}
+
+\lstdefinestyle{bashStyle}{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    backgroundcolor=\color{blue!5},
+    frame=single,
+    language=bash,
+}
+
+\title{\textbf{GraSMoS User Manual}\\
+\large Graph-Aware Structure Search with Monte Carlo Simulation\\
+Version 2.0}
+\author{lipai@mail.sim.ac.cn}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+%==============================================================================
+\section{Introduction}
+%==============================================================================
+
+\subsection{Overview}
+GraSMoS (Graph-Aware Structure Search with Monte Carlo Simulation) is a sophisticated computational tool designed to find stable atomic structures through advanced global optimization algorithms. It combines Monte Carlo sampling with a climbing algorithm and graph-theoretic collective moves to efficiently explore the potential energy surface and identify low-energy structural configurations. Key innovations include bond-switching for topological rearrangement, community detection on bond graphs for coordinated multi-atom moves, and Laplacian soft-mode analysis for identifying low-energy deformation pathways.
+
+\subsection{Key Features}
+\begin{itemize}
+    \item \textbf{Multi-calculator support}: Compatible with various energy calculators including EAM, CHGNet, DeepMD, FAIRChem, VASP, LAMMPS, and custom Python calculators
+    \item \textbf{Graph-theoretic collective moves}: Bond-switching (generalized Stone-Wales), community detection (Louvain), Laplacian soft modes for efficient PES exploration
+    \item \textbf{Adaptive mode weighting}: Multi-armed bandit optimization of move-type probabilities based on historical performance
+    \item \textbf{Flexible mobility control}: Supports index-based and region-based constraints on atomic movement
+    \item \textbf{Permutation-invariant structure comparison}: Uses sorted SOAP descriptors combined with energy gating for robust duplicate detection
+    \item \textbf{Automatic geometry classification}: Detects cluster, wire, slab, or bulk structures with appropriate handling of vacuum axes
+    \item \textbf{Energy-weighted sampling}: Prioritizes movement of unstable atoms through per-atom energy analysis
+\end{itemize}
+
+%==============================================================================
+\section{Theoretical Background}
+%==============================================================================
+
+\subsection{Stochastic Surface Walking (SSW) Algorithm}
+GraSMoS is based on the Stochastic Surface Walking method \cite{shang2013ssw}, which combines:
+
+\begin{enumerate}
+    \item \textbf{Random displacement}: Structure perturbation along a weighted random direction
+    \item \textbf{Climbing phase}: Addition of Gaussian bias potentials to escape local minima
+    \item \textbf{Local optimization}: Minimization to nearest stationary point
+    \item \textbf{Metropolis acceptance}: Temperature-dependent Monte Carlo acceptance
+\end{enumerate}
+
+\subsection{Algorithm Workflow}
+
+\begin{algorithm}
+\caption{GraSMoS Search Algorithm}
+\begin{algorithmic}[1]
+\State Initialize structure $\mathbf{R}_0$ and energy pool $E = \emptyset$
+\State Optimize $\mathbf{R}_0 \rightarrow \mathbf{R}_{\text{min}}$, add to pool
+\For{$\text{step} = 1$ to $N_{\text{MC}}$}
+    \State Generate random direction $\mathbf{N}$ (energy-weighted)
+    \State Displace: $\mathbf{R}' = \mathbf{R}_{\text{current}} + d_s \mathbf{N}$
+    \For{$h = 1$ to $H$ (Gaussian potentials)}
+        \State Add Gaussian bias: $V_{\text{bias}} = \sum_{i=1}^{h} w e^{-|\mathbf{R} - \mathbf{R}_i|^2 / (2\sigma^2)}$
+        \State Optimize on biased PES: $\mathbf{R}_h \rightarrow \mathbf{R}_{\text{climb}}$
+        \If{converged or max steps reached}
+            \State \textbf{break}
+        \EndIf
+    \EndFor
+    \State Optimize on real PES: $\mathbf{R}_{\text{climb}} \rightarrow \mathbf{R}_{\text{new}}$
+    \State Compute $E_{\text{new}} = E(\mathbf{R}_{\text{new}})$
+    \If{$\mathbf{R}_{\text{new}}$ is not duplicate}
+        \State Add $(\mathbf{R}_{\text{new}}, E_{\text{new}})$ to pool
+    \EndIf
+    \State Accept/reject via Metropolis: $P = \min(1, e^{-\Delta E / k_B T})$
+    \State Update $\mathbf{R}_{\text{current}}$
+\EndFor
+\State \Return lowest energy structure from pool
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Energy-Weighted Direction Sampling}
+Unlike traditional Maxwell-Boltzmann sampling, GraSMoS uses per-atom potential energies to guide sampling:
+
+\begin{center}
+\textbf{N}_i \ \sim\  N(0,\ \sigma_i^2),\qquad \sigma_i = \sqrt{k_B T} \cdot \exp\!\bigl(E_i^{\,\text{norm}}\bigr)
+\end{center}
+
+where $E_i^{\text{norm}}$ is the normalized energy of atom $i$ relative to the lowest-energy atom of the same element. This prioritizes movement of high-energy, unstable atoms.
+
+\subsection{Structure Comparison via SOAP Descriptors}
+To handle atomic permutations, GraSMoS uses permutation-invariant descriptors:
+
+\begin{enumerate}
+    \item Compute per-atom SOAP vectors $\{\mathbf{s}_i\}_{i=1}^N$
+    \item Sort by L2 norm: $\mathbf{s}_{\sigma(1)}, \ldots, \mathbf{s}_{\sigma(N)}$ where $\|\mathbf{s}_{\sigma(i)}\| \leq \|\mathbf{s}_{\sigma(i+1)}\|$
+    \item Flatten to structure descriptor: $\mathbf{D} = [\mathbf{s}_{\sigma(1)}; \ldots; \mathbf{s}_{\sigma(N)}]$
+    \item Compare: structures are duplicates if $\|\mathbf{D}_1 - \mathbf{D}_2\| < \tau_{\text{desc}}$ and $|E_1 - E_2| < \tau_E$
+\end{enumerate}
+
+%==============================================================================
+\section{Installation}
+%==============================================================================
+
+\subsection{System Requirements}
+\begin{itemize}
+    \item Python 3.8 or higher
+    \item pip (Python package manager)
+    \item ASE $\geq$ 3.26.0 (Atomic Simulation Environment)
+    \item dscribe $\geq$ 2.1.0 (for SOAP descriptors)
+\end{itemize}
+
+\subsection{Installation Steps}
+
+\begin{lstlisting}[style=bashStyle, caption={Installation from source}]
+# Clone the repository
+git clone https://github.com/lipai-ustc/GraSMoS.git
+cd grasmos
+
+# (Optional) Create Conda environment
+conda create -n grasmos python=3.10 -y
+conda activate grasmos
+
+# Install GraSMoS
+pip install .
+
+# (Optional) Install additional calculators
+pip install deepmd-kit fairchem-core
+\end{lstlisting}
+
+\begin{tcolorbox}[colback=yellow!10,colframe=orange!50,title=Development Mode]
+For active development, use editable installation:
+\begin{lstlisting}[style=bashStyle]
+pip install -e .
+\end{lstlisting}
+This allows code modifications without reinstallation.
+\end{tcolorbox}
+
+%==============================================================================
+\section{Basic Usage}
+%==============================================================================
+
+\subsection{Input Files}
+GraSMoS requires two input files in the working directory:
+
+\begin{enumerate}
+    \item \texttt{input.json}: Calculation parameters configuration
+    \item \texttt{init.xyz}: Initial atomic structure in XYZ format (default path, can be changed in configuration)
+\end{enumerate}
+
+\subsection{Running GraSMoS}
+\begin{lstlisting}[style=bashStyle, caption={Basic execution}]
+# Navigate to directory containing input.json and init.xyz
+cd /path/to/working/directory
+
+# Run search
+grasmos
+\end{lstlisting}
+
+\subsection{Output Configuration}
+
+The \texttt{output} section controls output settings:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\texttt{directory} & Output directory name & "grasmos\_output" \\
+\texttt{rd\_xyz} & Enable output of random direction information & false \\
+\texttt{debug} & Enable debug mode for detailed logging & false \\
+\bottomrule
+\end{tabular}
+\caption{Output configuration parameters}
+\end{table}
+
+\subsection{Output Files}
+Results are saved in the specified output directory:
+
+\begin{itemize}
+    \item \texttt{all\_minima.xyz}: All discovered minimum energy structures (trajectory format)
+    \item \texttt{best\_str.xyz}: Lowest energy structure
+    \item \texttt{grasmos\_log.txt}: Detailed search log with energies and algorithm status
+    \item \texttt{rd\_info.xyz}: Random direction information (only if \texttt{rd\_xyz} is true)
+\end{itemize}
+
+\subsection{Debug Mode Output}
+
+In debug mode, the log file contains detailed information for each optimization step:
+
+\begin{lstlisting}
+Step 1: E_total = -125.234567 eV, E_base = -125.500000 eV, E_bias = 0.250000 eV, E_wall = 0.015433 eV, fmax = 0.850000 eV/\AA
+Step 2: E_total = -125.456789 eV, E_base = -125.650000 eV, E_bias = 0.180000 eV, E_wall = 0.013211 eV, fmax = 0.420000 eV/\AA
+...
+\end{lstlisting}
+
+%==============================================================================
+\section{Configuration Reference}
+%==============================================================================
+
+\subsection{input.json Structure}
+The configuration file is divided into several logical sections:
+
+\begin{lstlisting}[style=jsonStyle, caption={Minimal input.json example}]
+{
+  "system": {
+    "name": "MySystem",
+    "task": "global_search",
+    "structure": "init.xyz"
+  },
+  "potential": {
+    "type": "eam",
+    "model": "potential.eam.alloy"
+  },
+  "monte_carlo": {
+    "steps": 100,
+    "temperature": 300
+  },
+  "climbing": {
+    "gaussian": {
+      "height": 0.2,
+      "width": 0.2,
+      "Nmax": 20
+    },
+    "random_direction": {
+      "mode": ["thermo", "atomic"],
+      "ratio": [[[0.5, 0.5], 1]]
+    }
+  },
+  "optimizer": {
+    "max_steps": 500,
+    "fmax": 0.05
+  },
+  "output": {
+    "directory": "grasmos_output",
+    "debug": false
+  }
+}
+\end{lstlisting}
+
+\subsection{Potential Configuration}
+
+\subsubsection{EAM Potential}
+\begin{lstlisting}[style=jsonStyle]
+"potential": {
+  "type": "eam",
+  "model": "AlCu.eam.alloy"
+}
+\end{lstlisting}
+
+\subsubsection{CHGNet}
+\begin{lstlisting}[style=jsonStyle]
+"potential": {
+  "type": "chgnet",
+  "model": "pretrained"
+}
+\end{lstlisting}
+
+\subsubsection{DeepMD}
+\begin{lstlisting}[style=jsonStyle]
+"potential": {
+  "type": "deepmd",
+  "model": "dp_model.pb"
+}
+\end{lstlisting}
+
+\subsubsection{FAIRChem (Open Catalyst Project)}
+\begin{lstlisting}[style=jsonStyle]
+"potential": {
+  "type": "fairchem",
+  "model": "EquiformerV2-31M-S2EF-OC20-All+MD",
+  "device": "cuda",
+  "task_name": "oc20"
+}
+\end{lstlisting}
+
+\subsubsection{VASP}
+\begin{lstlisting}[style=jsonStyle]
+"potential": {
+  "type": "vasp",
+  "model": "INCAR"
+}
+\end{lstlisting}
+Reads VASP parameters from the specified INCAR file.
+
+\subsubsection{Custom Python Calculator}
+\begin{lstlisting}[style=jsonStyle]
+"potential": {
+  "type": "python"
+}
+\end{lstlisting}
+Requires a \texttt{calculator.py} file in the working directory defining a \texttt{calculator} variable with an ASE Calculator object.
+
+\subsection{Monte Carlo Parameters}
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\texttt{steps} & Total MC steps & Required \\
+\texttt{temperature} & Temperature (K) for Metropolis & Required \\
+\bottomrule
+\end{tabular}
+\caption{Monte Carlo configuration parameters}
+\end{table}
+
+\subsection{Climbing Phase Parameters}
+
+\subsubsection{Gaussian Bias Potentials}
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\texttt{gaussian.height} & Height of Gaussian bias potentials (w parameter) in eV & 0.2 \\
+\texttt{gaussian.width} & Width of Gaussian potentials (ds parameter) in \AA & 0.2 \\
+\texttt{gaussian.Nmax} & Maximum number of Gaussians per climbing (H parameter) & 20 \\
+\bottomrule
+\end{tabular}
+\caption{Gaussian bias potential parameters}
+\end{table}
+
+\subsubsection{Random Direction Generation}
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
+\midrule
+\texttt{mode} & List of methods for generating random search directions & ["thermo", "atomic"] \\
+\texttt{ratio} & Weight configurations for combining multiple modes & [[[0.5, 0.5], 1]] \\
+\texttt{rotation\_param} & Dimer rotation parameter & 10 \\
+\texttt{element\_weights} & Element-specific weight factors & {} \\
+\texttt{adaptive} & Enable adaptive mode weighting (v2.0+) & false \\
+\texttt{adaptive\_interval} & Steps between weight recomputation & 10 \\
+\texttt{adaptive\_alpha} & Acceptance-rate exponent for scoring & 2.0 \\
+\texttt{adaptive\_floor} & Minimum exploration weight fraction & 0.05 \\
+\texttt{adaptive\_smoothing} & EMA smoothing factor & 0.7 \\
+\bottomrule
+\end{tabular}
+\caption{Random direction generation parameters}
+\end{table}
+
+\subsection{Graph-Theoretic Collective Moves (v2.0)}
+GraSMoS introduces graph-based methods for identifying and executing effective multi-atom cooperative motions:
+
+\begin{itemize}
+    \item \textbf{Bond Graph Construction}: A weighted adjacency matrix is built from covalent radii, with edge weight $w = e^{-d / 0.5 r_{\text{cov}}}$. Edges with $w < 0.01$ are dropped. Per-atom energies (when available) modulate edge weights, biasing analysis toward high-energy regions.
+
+    \item \textbf{Community Detection (\texttt{community} mode)}: Louvain community detection on the bond graph identifies natural clusters (functional groups, coordination polyhedra, ring systems). A randomly selected community undergoes rigid translation, rotation, or radial breathing.
+
+    \item \textbf{Laplacian Soft Modes (\texttt{laplacian} mode)}: Low-frequency eigenvectors of the normalized graph Laplacian $L = I - D^{-1/2}AD^{-1/2}$ identify collective deformation patterns that cost minimal energy in a harmonic approximation.
+
+    \item \textbf{Bond Switching (\texttt{bond\_switch} mode)}: Large-angle (30°--90°) relative rotation of two local fragments about a bond, with graph-based candidate screening (coordination $\ge 2$, each endpoint has at least one other neighbour). This is the material-agnostic generalization of the Stone-Wales transformation.
+
+    \item \textbf{Adaptive Mode Weighting}: A multi-armed bandit approach dynamically adjusts per-mode sampling probabilities based on acceptance rate, energy improvement, and new-minima discovery. Modes are never eliminated (exploration floor prevents this), and EMA smoothing prevents abrupt drift.
+\end{itemize}
+\caption{Random direction generation parameters}
+\end{table}
+
+\subsubsection{Random Direction Modes}
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Mode} & \textbf{Description} \\
+\midrule
+\texttt{thermo} & Temperature-based random vectors (Boltzmann distribution) \\
+\texttt{atomic} & Energy-weighted thermo; high-energy atoms get larger displacements \\
+\texttt{nl} & Non-local pair attraction for bond formation \\
+\texttt{atnl} & Atomic-energy guided non-local pair \\
+\texttt{bond\_rotation} & Coordinated bond rotation (generalized GSW-like) \\
+\texttt{bond\_switch} & Generalized bond-switching (Stone-Wales-like), large-angle topology change \\
+\texttt{shell} & Coordination shell collective motion (breathing/shear) \\
+\texttt{community} & Louvain community detection on bond graph; rigid-body cluster moves \\
+\texttt{laplacian} & Graph Laplacian soft-mode deformation \\
+\texttt{python} & Custom user-defined function \\
+\bottomrule
+\end{tabular}
+\caption{Random direction generation modes}
+\end{table}
+
+\subsection{Mobile Control}
+
+Mobile control allows constraining which atoms can move during optimization. Four modes are supported:
+
+\subsubsection{Mode 1: All Atoms Mobile (Default)}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "all"
+}
+\end{lstlisting}
+or omit the \texttt{mobile\_control} section entirely.
+
+\subsubsection{Mode 2a: Specify Mobile Atoms}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "indices_free",
+  "indices_free": [10, 20, 25],
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+\end{lstlisting}
+Only listed atoms (0-based indexing) are mobile; all others are fixed.
+
+\subsubsection{Mode 2b: Specify Fixed Atoms}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "indices_fix",
+  "indices_fix": [0, 1, 2],
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+\end{lstlisting}
+Listed atoms are fixed; all others are mobile.
+
+\subsubsection{Mode 3: Region-Based Control}
+
+\paragraph{Spherical Region}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "region",
+  "region_type": "sphere",
+  "center": [5.0, 5.0, 5.0],
+  "radius": 10.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+\end{lstlisting}
+Atoms within the sphere are mobile.
+
+\paragraph{Slab Region}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "region",
+  "region_type": "slab",
+  "origin": [0.0, 0.0, 0.0],
+  "normal": [0, 0, 1],
+  "min_dist": -5.0,
+  "max_dist": 5.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+\end{lstlisting}
+Atoms between two parallel planes are mobile.
+
+\paragraph{Lower Region}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "region",
+  "region_type": "lower",
+  "axis": "z",
+  "threshold": 10.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+\end{lstlisting}
+Atoms with coordinate $\le$ threshold along the specified axis are mobile.
+
+\paragraph{Upper Region}
+\begin{lstlisting}[style=jsonStyle]
+"mobile_control": {
+  "mode": "region",
+  "region_type": "upper",
+  "axis": "z",
+  "threshold": 10.0,
+  "wall_strength": 10.0,
+  "wall_offset": 2.0
+}
+\end{lstlisting}
+Atoms with coordinate $\ge$ threshold along the specified axis are mobile.
+
+\subsubsection{Wall Potential}
+When \texttt{wall\_strength} $> 0$, a quadratic repulsive potential prevents mobile atoms from penetrating into immobile regions:
+
+\begin{center}
+\textbf{Wall potential:}\quad
+$V_{\text{wall}} = 0$ \ if\ $d \leq d_{\text{offset}}$;\qquad
+$V_{\text{wall}} = \tfrac{1}{2}k_{\text{wall}}(d - d_{\text{offset}})^2$ \ if\ $d > d_{\text{offset}}$
+\end{center}
+
+where $d$ is the penetration distance, $d_{\text{offset}}$ is \texttt{wall\_offset}, and $k_{\text{wall}}$ is \texttt{wall\_strength}.
+
+%==============================================================================
+\section{Low-Dimensional Systems}
+%==============================================================================
+
+\subsection{Geometry Classification}
+GraSMoS automatically classifies structures based on vacuum analysis:
+\begin{itemize}
+    \item \textbf{Cluster (0D)}: Vacuum along all three axes
+    \item \textbf{Wire (1D)}: Vacuum along two axes
+    \item \textbf{Slab (2D)}: Vacuum along one axis
+    \item \textbf{Bulk (3D)}: No significant vacuum
+\end{itemize}
+
+\subsection{Structure Preparation}
+\begin{tcolorbox}[colback=red!5,colframe=red!50,title=IMPORTANT: Structure Centering]
+For low-dimensional systems, you \textbf{must manually center} the structure in the simulation box before running GraSMoS. The geometry detection algorithm measures distances from atoms to cell boundaries; misplaced structures will be misclassified.
+
+\textbf{Recommended placement:}
+\begin{itemize}
+    \item \textbf{0D cluster}: Center at $(L_x/2, L_y/2, L_z/2)$
+    \item \textbf{1D wire}: Wire extends along one axis, centered in the other two
+    \item \textbf{2D slab}: Centered along the vacuum direction
+\end{itemize}
+\end{tcolorbox}
+
+\subsection{Vacuum Axis Handling}
+For structures with vacuum axes, GraSMoS automatically:
+\begin{enumerate}
+    \item Detects vacuum axes using absolute coordinate analysis
+    \item Centers the structure along vacuum axes to the box center
+    \item Applies recentering after each accepted Monte Carlo move
+    \item Prevents translational drift during search
+\end{enumerate}
+
+%==============================================================================
+\section{Examples}
+%==============================================================================
+
+\subsection{Example 1: AlCu Cluster with EAM}
+\begin{lstlisting}[style=bashStyle]
+cd examples/AlCu-EAM
+python generate_structure.py  # Generate init.xyz
+grasmos                         # Run search
+\end{lstlisting}
+
+Configuration highlights:
+\begin{itemize}
+    \item EAM potential for Al-Cu system
+    \item 100 Monte Carlo steps
+    \item Temperature: 300 K
+\end{itemize}
+
+\subsection{Example 2: C$_{60}$ with DeepMD}
+\begin{lstlisting}[style=bashStyle]
+cd examples/C60-deepmd
+# Ensure dp_model.pb is present
+grasmos
+\end{lstlisting}
+
+Configuration highlights:
+\begin{itemize}
+    \item DeepMD neural network potential
+    \item Requires \texttt{dp\_model.pb} trained model
+    \item Install: \texttt{pip install deepmd-kit}
+\end{itemize}
+
+\subsection{Example 3: Au Surface with FAIRChem (Custom Calculator)}
+\begin{lstlisting}[style=bashStyle]
+cd examples/Au100-python-fairchem
+# Check calculator.py for calculator definition
+grasmos
+\end{lstlisting}
+
+Configuration highlights:
+\begin{itemize}
+    \item Custom Python calculator using FAIRChem
+    \item Slab region mobility control for surface atoms
+    \item Requires: \texttt{pip install fairchem-core}
+\end{itemize}
+
+%==============================================================================
+\section{Advanced Topics}
+%==============================================================================
+
+\subsection{Task Types}
+GraSMoS supports two task types:
+
+\begin{itemize}
+    \item \textbf{Global Search} (\texttt{global\_search}): Finds stable structures across the potential energy surface
+    \item \textbf{Structure Sampling} (\texttt{structure\_sampling}): Samples atomic structures around existing minima
+\end{itemize}
+
+\subsection{Custom Calculator Development}
+To use a custom ASE-compatible calculator:
+
+\begin{enumerate}
+    \item Create \texttt{calculator.py} in your working directory
+    \item Define a \texttt{calculator} variable
+    \item Set \texttt{"type": "python"} in \texttt{input.json}
+\end{enumerate}
+
+Example \texttt{calculator.py}:
+\begin{lstlisting}[language=Python, style=jsonStyle]
+from ase.calculators.emt import EMT
+
+# Define your calculator
+calculator = EMT()
+\end{lstlisting}
+
+\subsection{Custom Random Direction Generation}
+
+When \texttt{random\_direction.mode} is set to \texttt{"python"}, create a \texttt{generate\_random\_direction.py} file in your working directory:
+
+\begin{lstlisting}[language=Python, style=jsonStyle]
+import numpy as np
+from ase import Atoms
+
+def generate_random_direction(atoms: Atoms) -> np.ndarray:
+    """
+    Generate custom random direction vector for GraSMoS algorithm.
+    
+    Parameters:
+        atoms: ASE Atoms object representing current structure
+    
+    Returns:
+        N: 1D numpy array of size (3*n_atoms,) representing the direction vector
+    """
+    n_atoms = len(atoms)
+    N = np.random.randn(3 * n_atoms)  # Your custom logic here
+    return N
+\end{lstlisting}
+
+Then configure in \texttt{input.json}:
+
+\begin{lstlisting}[style=jsonStyle]
+"climbing": {
+  "random_direction": {
+    "mode": ["python"]
+  }
+}
+\end{lstlisting}
+
+\subsection{Parallel Execution}
+GraSMoS is designed for serial execution per search. For parallel exploration:
+\begin{itemize}
+    \item Run multiple independent searches with different initial structures
+    \item Use different random seeds (implicitly different due to system time)
+    \item Combine results post-processing
+\end{itemize}
+
+\subsection{Troubleshooting}
+
+\subsubsection{Structure Misclassification}
+\textbf{Symptom:} Cluster treated as bulk or vice versa.
+
+\textbf{Solution:} Ensure structure is centered in the simulation box. Check with:
+\begin{lstlisting}[language=Python, style=jsonStyle]
+from ase.io import read
+atoms = read('init.xyz')
+pos = atoms.get_positions()
+center = pos.mean(axis=0)
+cell = atoms.get_cell()
+box_center = (cell[0] + cell[1] + cell[2]) / 2
+print(f"Structure center: {center}")
+print(f"Box center: {box_center}")
+\end{lstlisting}
+
+\subsubsection{Slow Convergence}
+\textbf{Possible causes:}
+\begin{itemize}
+    \item \texttt{gaussian\_height} too small: increase to 0.2--0.5 eV
+    \item \texttt{temperature} too low: try 500--1000 K
+    \item \texttt{max\_gaussians} too small: increase to 20--30
+\end{itemize}
+
+\subsubsection{Too Many Duplicates}
+\textbf{Possible causes:}
+\begin{itemize}
+    \item \texttt{duplicate\_tol} too loose: default is 0.01, try 0.005
+    \item Energy tolerance too large: adjust in source (default 1e-3 eV)
+\end{itemize}
+
+%==============================================================================
+\section{Parameter Tuning Guidelines}
+%==============================================================================
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Parameter} & \textbf{Effect} & \textbf{Tuning Strategy} \\
+\midrule
+\texttt{gaussian\_height} & Barrier crossing ability & Increase for rugged PES \\
+\texttt{gaussian\_width} & Step size & Smaller for precise, larger for exploration \\
+\texttt{max\_gaussians} & Climbing persistence & Increase if stuck in shallow minima \\
+\texttt{temperature} & Acceptance probability & Higher for aggressive search \\
+\texttt{monte\_carlo.steps} & Total exploration & More steps = better coverage \\
+\bottomrule
+\end{tabular}
+\caption{Parameter tuning guidelines}
+\end{table}
+
+%==============================================================================
+\section{References}
+%==============================================================================
+
+\begin{thebibliography}{99}
+
+\bibitem{shang2013ssw}
+Shang, C., \& Liu, Z.-P. (2013).
+\textit{Stochastic Surface Walking Method for Structure Prediction and Pathway Searching}.
+Journal of Chemical Theory and Computation, 9(5), 1838--1845.
+
+\bibitem{shang2013jcp}
+Shang, C., \& Liu, Z.-P. (2013).
+\textit{Stochastic surface walking method for global optimization of atomic clusters and biomolecules}.
+The Journal of Chemical Physics, 139(24), 244104.
+
+\bibitem{jctc2012}
+Zhang, X.-J., \& Shang, C., \& Liu, Z.-P. (2012).
+\textit{Double-Ended Surface Walking Method for Pathway Building and Transition State Location of Complex Reactions}.
+Journal of Chemical Theory and Computation, 9(12), 5745--5753.
+
+% ── Graph theory & structure search ──
+
+\bibitem{blondel2008louvain}
+Blondel, V.~D., Guillaume, J.-L., Lambiotte, R., \& Lefebvre, E. (2008).
+\textit{Fast unfolding of communities in large networks}.
+Journal of Statistical Mechanics: Theory and Experiment, 2008(10), P10008.
+
+\bibitem{chung1997spectral}
+Chung, F.~R.~K. (1997).
+\textit{Spectral Graph Theory}.
+CBMS Regional Conference Series in Mathematics, Vol.~92. American Mathematical Society.
+
+\bibitem{jacobs1998pebble}
+Jacobs, D.~J., \& Thorpe, M.~F. (1998).
+\textit{Generic rigidity percolation: The pebble game}.
+Physical Review Letters, 75(22), 4051--4054.
+
+\bibitem{stone1986stonewales}
+Stone, A.~J., \& Wales, D.~J. (1986).
+\textit{Theoretical studies of icosahedral C$_{60}$ and some related species}.
+Chemical Physics Letters, 128(5--6), 501--503.
+
+\bibitem{newman2004networks}
+Newman, M.~E.~J. (2004).
+\textit{Detecting community structure in networks}.
+The European Physical Journal B, 38(2), 321--330.
+
+\bibitem{belkin2003laplacian}
+Belkin, M., \& Niyogi, P. (2003).
+\textit{Laplacian eigenmaps for dimensionality reduction and data representation}.
+Neural Computation, 15(6), 1373--1396.
+
+% ── Machine learning potentials ──
+
+\bibitem{behler2007nnp}
+Behler, J., \& Parrinello, M. (2007).
+\textit{Generalized neural-network representation of high-dimensional potential-energy surfaces}.
+Physical Review Letters, 98(14), 146401.
+
+\bibitem{batzner2022e3nn}
+Batzner, S., Musaelian, A., Sun, L., Geiger, M., Mailoa, J.~P., Kornbluth, M., Molinari, N., Smidt, T.~E., \& Kozinsky, B. (2022).
+\textit{E(3)-equivariant graph neural networks for data-efficient and accurate interatomic potentials}.
+Nature Communications, 13, 2453.
+
+\bibitem{zhang2018deepmd}
+Zhang, L., Han, J., Wang, H., Car, R., \& E, W. (2018).
+\textit{Deep potential molecular dynamics: a scalable model with the accuracy of quantum mechanics}.
+Physical Review Letters, 120(14), 143001.
+
+\bibitem{schutt2018schnet}
+Sch{\"u}tt, K.~T., Sauceda, H.~E., Kindermans, P.-J., Tkatchenko, A., \& M{\"u}ller, K.-R. (2018).
+\textit{SchNet -- A deep learning architecture for molecules and materials}.
+The Journal of Chemical Physics, 148(24), 241722.
+
+\bibitem{gasteiger2021gemnet}
+Gasteiger, J., Becker, F., \& G{\"u}nnemann, S. (2021).
+\textit{GemNet: Universal directional graph neural networks for molecules}.
+Advances in Neural Information Processing Systems, 34, 6790--6802.
+
+\bibitem{merchant2023scaling}
+Merchant, A., Batzner, S., Schoenholz, S.~S., Aykol, M., Cheon, G., \& Cubuk, E.~D. (2023).
+\textit{Scaling deep learning for materials discovery}.
+Nature, 624(7990), 80--85.
+
+\end{thebibliography}
+
+%==============================================================================
+\section{License}
+%==============================================================================
+
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+
+You may copy, distribute, and modify this software under the terms of the GPL-3.0.
+For the full license text, see: \url{https://www.gnu.org/licenses/gpl-3.0.html}
+
+%==============================================================================
+\appendix
+\section{Complete Configuration Example}
+%==============================================================================
+
+\begin{lstlisting}[style=jsonStyle, caption={Full input.json with all options}]
+{
+  "system": {
+    "name": "CompleteExample",
+    "task": "global_search",
+    "structure": "init.xyz"
+  },
+  "potential": {
+    "type": "deepmd",
+    "model": "dp_model.pb",
+    "device": "cpu"
+  },
+  "monte_carlo": {
+    "steps": 200,
+    "temperature": 500
+  },
+  "climbing": {
+    "gaussian": {
+      "height": 0.2,
+      "width": 0.2,
+      "Nmax": 20
+    },
+    "random_direction": {
+      "mode": ["thermo", "atomic"],
+      "ratio": [[[0.5, 0.5], 1]],
+      "element_weights": {"Cu": 1.5, "Al": 1.0},
+      "rotation_param": 10
+    }
+  },
+  "optimizer": {
+    "max_steps": 500,
+    "fmax": 0.03
+  },
+  "mobile_control": {
+    "mode": "region",
+    "region_type": "sphere",
+    "center": "center",
+    "radius": 8.0,
+    "wall_strength": 15.0,
+    "wall_offset": 1.5
+  },
+  "output": {
+    "directory": "my_output",
+    "rd_xyz": false,
+    "debug": true
+  }
+}
+\end{lstlisting}
+
+\end{document}

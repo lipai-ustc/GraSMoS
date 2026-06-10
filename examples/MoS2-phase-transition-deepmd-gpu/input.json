@@ -1,0 +1,51 @@
+{
+  "system": {
+    "name": "MoS2",
+    "task": "global_search"
+  },
+  "potential": {
+    "type": "deepmd",
+    "model": "M2C.pb"
+  },
+  "monte_carlo": {
+    "steps": 1000,
+    "temperature": 1000
+  },
+  "climbing": {
+    "random_direction": {
+      "mode": [ "thermo", "atomic" ],
+      "ratio": [ [ [ 0.1, 0.9 ], 0.5 ], [ [ 0.4, 0.6 ], 0.5 ] ],
+      "rotation_param": 10,
+      "AE_factor": 100,
+      "element_weights": {
+        "Mo": 0,
+        "S": 1
+      },
+      "direction_weights": [ 1, 1, 0.05 ],
+      "climbing_optimizer": {
+        "max_steps": 100,
+        "fmax": 0.05
+      }
+    },
+    "gaussian": {
+      "height": 0.8,
+      "Nmax": 20
+    },
+    "displace": {
+      "average_dr": 0.1,
+      "max_dr": 0.2
+    }
+  },
+  "optimizer": {
+    "max_steps": 200,
+    "fmax": 0.02
+  },
+  "mobile_control": {
+    "mode": "all"
+  },
+  "output": {
+    "directory": "cosmos_output",
+    "rd_xyz": true,
+    "debug": false
+  }
+}
