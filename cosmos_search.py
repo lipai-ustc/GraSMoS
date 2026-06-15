@@ -1274,6 +1274,30 @@ class GraSMoSSearch:
                       f"modes={self.rd_ratio_mode[s]}")
             print("")
 
+    def _min_pair_distance(self, atoms):
+        """
+        Return the minimum distance between any two mobile atoms.
+        Uses the MIC-aware Atoms.get_distances() if the cell is periodic.
+        """
+        positions = atoms.positions
+        n = len(atoms)
+        if n < 2:
+            return float('inf')
+        # Only check mobile pairs for efficiency; overlap involving
+        # immobile atoms is harmless (they constrain the relaxation).
+        mobile_idx = np.where(self.mobile_mask)[0]
+        if len(mobile_idx) < 2:
+            return float('inf')
+        # Get all pairwise distances among mobile atoms (MIC-aware)
+        D = atoms.get_distances(mobile_idx[0], mobile_idx, mic=True)
+        min_d = D[D > 1e-6].min() if len(D) > 1 else float('inf')
+        for i in range(1, len(mobile_idx)):
+            row = atoms.get_distances(mobile_idx[i], mobile_idx[i:], mic=True)
+            row = row[row > 1e-6]
+            if len(row) > 0 and row.min() < min_d:
+                min_d = row.min()
+        return float(min_d)
+
     def _get_real_energy(self, atoms):
         """
         Get energy of structure on real potential energy surface
@@ -1384,6 +1408,12 @@ class GraSMoSSearch:
 
                 climb_atoms.set_positions(climb_atoms.get_positions() + displace)
 
+                # ── Overlap check: reject if any atom pair is too close ──
+                if self._min_pair_distance(climb_atoms) < 0.6:
+                    if self.debug:
+                        print(f"  Gaussian #{n}: overlap detected, skipping climb")
+                    break
+
                 tBE=climb_atoms.get_potential_energy()   # potential energy on bias potential energy surface
                 climb_energy = self._get_real_energy(climb_atoms) # real energy on real potential energy surface
                 if self.output_xyz:  # before local minimize
@@ -1449,11 +1479,16 @@ class GraSMoSSearch:
             self._local_minimize(new_basin_atoms,self.opt_fmax,self.opt_max_steps)
             new_basin_energy = self._get_real_energy(new_basin_atoms)
 
+            # ── Overlap guard: force rejection if atoms still overlap ──
+            overlap = self._min_pair_distance(new_basin_atoms) < 0.6
+
             if self.output_xyz:
                 print_xyz(new_basin_atoms,filename=f"climb_{step}.xyz",energy=new_basin_energy,bias_energy=0,displace=displace0)
             
             # Algorithm Step 7: Use Metropolis criterion to accept or reject
             delta_E = new_basin_energy - basin_energy
+            if overlap:
+                delta_E = 1000.0  # force rejection
             if delta_E > 0:
                 accept_prob = np.exp(-delta_E / (self.kB * self.temperature))
             else:
@@ -1775,46 +1810,4 @@ class GraSMoSSearch:
         :param vec: Original displacement vector (N, 3)
         :return: Corrected displacement vector (N, 3)
         """
-        P = pos
-        Q = pos + vec
-        centroid_P = np.mean(P, axis=0)
-        centroid_Q = np.mean(Q, axis=0)
-        P_centered = P - centroid_P
-        Q_centered = Q - centroid_Q
-        H = np.dot(P_centered.T, Q_centered)
-        U, S, Vt = np.linalg.svd(H)
-        d = np.linalg.det(np.dot(Vt.T, U.T))
-        step = np.eye(3)
-        if d < 0:
-            step[2, 2] = -1
-        R = np.dot(Vt.T, np.dot(step, U.T))
-        Q_aligned = np.dot(Q_centered, R)
-        corrected_displacements = Q_aligned - P_centered
-        return self._normalize(corrected_displacements.flatten())
-
-    def _print_mobile(self, **kwargs):
-        """
-        Print values for mobile atoms from multiple lists with custom titles.
-        """
-        for title, data_list in kwargs.items():
-            if len(data_list) != self.n_atoms:
-                raise ValueError(f"List '{title}' must have n_atoms elements")
-        for i in np.arange(self.n_atoms):
-            if self.mobile_mask[i]:
-                info = [f"AtomID: {i:3d}"]
-                for title, data_list in kwargs.items():
-                    info.append(f"{title} = {data_list[i]}")
-                print(" | ".join(info))
-
-    def _normalize(self,N):
-        """
-        Normalize N vector
-        """
-        N_mask=np.zeros_like(N)
-        for i in range(self.n_atoms):
-            if self.mobile_mask[i]:
-                N_mask[3*i:3*i+3]=N[3*i:3*i+3]
-        try:
-            return N_mask / np.linalg.norm(N_mask)
-        except:
-            raise ValueError("Failed to normalize N vector")
+  
