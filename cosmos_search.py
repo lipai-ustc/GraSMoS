@@ -63,6 +63,7 @@ class GraSMoSSearch:
             #  energy_drop  — sum of -ΔE (positive = improvement)
             #  new_minima — steps that found a new unique minimum
             self._mode_stats = {}
+            self._lock_direction = False  # bond_switch skip-dimer flag
             for mode_name in self.rd_mode:
                 self._mode_stats[mode_name] = {
                     'calls': 0, 'accepted': 0, 'energy_drop': 0.0,
@@ -797,6 +798,11 @@ class GraSMoSSearch:
         rotate_group(group_i, sign * theta)
         rotate_group(group_j, -sign * theta)
 
+        # Flag: skip dimer rotation for this step — bond_switch generates a
+        # geometrically precise topology-changing direction whose high
+        # curvature would be counteracted by the low-curvature-seeking dimer.
+        self._lock_direction = True
+
         return N
 
     def _generate_rd_shell(self, atoms):
@@ -1239,15 +1245,34 @@ class GraSMoSSearch:
         blended = np.maximum(blended, floor_val)
         blended = blended / blended.sum()
 
-        self.rd_ratio_mode[0] = blended.tolist()
+        # Apply to ALL schemes so they stay in sync.  Each scheme preserves
+        # the same per-mode relative proportions but may differ in which
+        # modes participate (some schemes set zero weight for certain modes,
+        # which adaptive won't resurrect — that's intentional: if a scheme
+        # was designed without a mode, we don't force it in).
+        for s in range(self.n_rd_scheme):
+            scheme_weights = np.array(self.rd_ratio_mode[s], dtype=float)
+            # Blend: keep zeros where original was zero, apply blended
+            # weights where original was non-zero (renormalised)
+            mask = scheme_weights > 1e-10
+            if mask.sum() > 0:
+                subset = blended[mask]
+                subset = subset / subset.sum()
+                new_w = scheme_weights.copy()
+                new_w[mask] = subset
+            else:
+                new_w = scheme_weights.copy()
+            self.rd_ratio_mode[s] = new_w.tolist()
 
         if self.debug:
             print("\n--- Adaptive weights updated ---")
+            for s in range(self.n_rd_scheme):
+                print(f"  Scheme {s}: {self.rd_ratio_mode[s]}")
             for i, mode_name in enumerate(self.rd_mode):
                 s = stats[mode_name]
                 print(f"  {mode_name:15s}: calls={s['calls']:4d}  "
                       f"acc_rate={s['accepted']/max(s['calls'],1):.2f}  "
-                      f"w={self.rd_ratio_mode[0][i]:.3f}")
+                      f"w={blended[i]:.3f}")
             print("")
 
     def _get_real_energy(self, atoms):
@@ -1312,12 +1337,12 @@ class GraSMoSSearch:
             prev_climb_energy = basin_energy  # Track energy for adaptive width
             adaptive_gw = None                # Adaptive Gaussian width (None = auto-initialize)
             for n in range(1, self.max_gaussians + 1):
-                # CRITICAL: Move structure along direction N before adding bias potential
-                # This is Step 3 in the SSW paper: R^{n-1} displacement by dr along N_i^n
-                # Add new Gaussian potential at the CURRENT position (before displacement)
-                # THEN displace structure along direction N by dr
-                # Locally optimize on modified potential energy surface
-                N = self._bias_dimer_rotation_ase(climb_atoms, N0)
+                # ── Dimer rotation (skipped for topology-changing moves whose
+                #     reaction coordinate has high curvature) ──
+                if getattr(self, '_lock_direction', False):
+                    N = N0
+                else:
+                    N = self._bias_dimer_rotation_ase(climb_atoms, N0)
                 displace = get_displace(N,self.mobile_mask,self.n_mobile,self.average_dr,self.max_dr)
                 Norm_dist = np.linalg.norm(displace)
 
@@ -1448,6 +1473,9 @@ class GraSMoSSearch:
                 self._step_counter += 1
                 if self._step_counter % self.adaptive_interval == 0:
                     self._recompute_adaptive_weights()
+
+            # Reset topology-change flag for the next step
+            self._lock_direction = False
 
             # Output current step information
             print(f"Step {step+1}: Energy = {new_basin_energy:.6f} eV")
@@ -1755,7 +1783,7 @@ class GraSMoSSearch:
 
     def _print_mobile(self, **kwargs):
         """
-        Print values for mobile atoms from multiple lists with custom titles.
+ custom titles.
         **kwargs: Pairs of title=list, where each list contains values for all atoms.
         Example: self._print_mobile(energy=energies, force=forces)
         """
