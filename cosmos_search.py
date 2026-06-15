@@ -479,7 +479,7 @@ class GraSMoSSearch:
         """
         from ase.data import covalent_radii
         positions = atoms.positions
-        symbols = atoms.get_chemical_symbols()
+        numbers = atoms.get_atomic_numbers()
         n_atoms = len(atoms)
         bonds = []
         # Bond tolerance factor: 1.25 * (r_cov_i + r_cov_j)
@@ -489,8 +489,8 @@ class GraSMoSSearch:
             for j in range(i + 1, n_atoms):
                 if not self.mobile_mask[j]:
                     continue
-                ri = covalent_radii[symbols[i]]
-                rj = covalent_radii[symbols[j]]
+                ri = covalent_radii[numbers[i]]
+                rj = covalent_radii[numbers[j]]
                 cutoff = 1.25 * (ri + rj)
                 dist = atoms.get_distance(i, j, mic=True)
                 if dist < cutoff:
@@ -520,7 +520,7 @@ class GraSMoSSearch:
 
         n = self.n_atoms
         positions = atoms.positions
-        symbols = atoms.get_chemical_symbols()
+        numbers = atoms.get_atomic_numbers()
         A = np.zeros((n, n), dtype=float)
         use_energy = energy_factors is not None
 
@@ -531,7 +531,7 @@ class GraSMoSSearch:
                 if not self.mobile_mask[j]:
                     continue
                 dist = atoms.get_distance(i, j, mic=True)
-                r_cov = covalent_radii[symbols[i]] + covalent_radii[symbols[j]]
+                r_cov = covalent_radii[numbers[i]] + covalent_radii[numbers[j]]
                 if r_cov <= 0:
                     continue
                 weight = np.exp(-dist / (0.5 * r_cov))
@@ -672,15 +672,16 @@ class GraSMoSSearch:
 
         # Define group: atoms i, j and their bonded neighbors
         group = {i, j}
+        numbers = atoms.get_atomic_numbers()
         for k in range(self.n_atoms):
             if not self.mobile_mask[k]:
                 continue
             dik = atoms.get_distance(i, k, mic=True)
             djk = atoms.get_distance(j, k, mic=True)
             # Include if bonded to either i or j
-            ri = covalent_radii[atoms.get_chemical_symbols()[i]]
-            rk = covalent_radii[atoms.get_chemical_symbols()[k]]
-            rj = covalent_radii[atoms.get_chemical_symbols()[j]]
+            ri = covalent_radii[numbers[i]]
+            rk = covalent_radii[numbers[k]]
+            rj = covalent_radii[numbers[j]]
             if dik < 1.25 * (ri + rk) or djk < 1.25 * (rj + rk):
                 group.add(k)
 
