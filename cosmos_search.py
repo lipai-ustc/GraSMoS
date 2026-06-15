@@ -1661,4 +1661,123 @@ class GraSMoSSearch:
         eigenmode_search.control.set_parameter('f_rot_max', 0.1)  # Upper limit for stopping
         eigenmode_search.control.set_parameter('max_num_rot', 100)  # Maximum rotations
         
-        # Use d
+        # Use dimer's built-in method to converge to eigenmode
+
+        if self.debug:
+            atoms_temp2=atoms_temp.copy()
+            atoms_temp2.set_positions(atoms_temp.positions+0.01*N0.reshape(-1,3))
+            atoms_temp2.calc=self.bias_calc
+            print("before rotation:  E_total=",atoms_temp2.get_potential_energy(), "E_base=",self.bias_calc.results['E_base']," E_quadra=",self.bias_calc.results['E_quadra'])
+
+        eigenmode_search.converge_to_eigenmode()
+
+        # Get the final converged eigenmode
+        final_mode = eigenmode_search.eigenmode
+
+        if self.debug:
+            atoms_temp2=atoms_temp.copy()
+            atoms_temp2.set_positions(atoms_temp.positions+0.01*final_mode)
+            atoms_temp2.calc=self.bias_calc
+            print("after rotation:  E_total=",atoms_temp2.get_potential_energy(), "E_base=",self.bias_calc.results['E_base']," E_quadra=",self.bias_calc.results['E_quadra'])
+
+        # Update the eigenmode in MinModeAtoms
+        min_mode_atoms.set_eigenmode(final_mode, order=1)
+
+        # Get final curvature
+        final_curvature = eigenmode_search.get_curvature()
+        if self.debug:
+            print(f"Final curvature: {final_curvature:.6f}")
+
+        # Verify the final rotational force
+        eigenmode_search.update_virtual_forces()
+        final_rot_force = eigenmode_search.get_rotational_force()
+        final_rot_force_norm = np.linalg.norm(final_rot_force)
+        if self.debug:
+            print(f"Final rotational force norm: {final_rot_force_norm:.6f}")
+
+        # Return optimized direction and curvature
+        optimized_direction = min_mode_atoms.get_eigenmode(order=1)
+
+        N=optimized_direction.flatten()
+        if(np.dot(N,N0)<0):
+            N=-N
+        return N
+
+    def _remove_translation(self,atoms,N):
+        """
+        Remove translation from N vector
+        """
+        # do not remove translation and rotation for bulk structure
+        N_temp = N.reshape(-1,3)-N.reshape(-1,3).mean(axis=0)
+        return self._normalize(N_temp.flatten())
+
+    def _remove_rotation_and_translation(self,pos, vec):
+        """
+        Remove global translation and rotation from displacement vector using Kabsch algorithm
+        :param pos: Original atomic positions (N, 3)
+        :param vec: Original displacement vector (N, 3)
+        :return: Corrected displacement vector (N, 3)
+        """
+        # 1. Calculate initial position P and displaced position Q
+        P = pos
+        Q = pos + vec
+
+        # 2. Remove translation: move centroid to origin
+        centroid_P = np.mean(P, axis=0)
+        centroid_Q = np.mean(Q, axis=0)
+
+        P_centered = P - centroid_P
+        Q_centered = Q - centroid_Q
+
+        # 3. Calculate covariance matrix H (Kabsch Algorithm)
+        # H = P^T * Q
+        H = np.dot(P_centered.T, Q_centered)
+
+        # 4. Singular Value Decomposition SVD
+        U, S, Vt = np.linalg.svd(H)
+
+        # 5. Calculate rotation matrix R
+        d = np.linalg.det(np.dot(Vt.T, U.T))
+        step = np.eye(3)
+        if d < 0:
+            step[2, 2] = -1
+
+        R = np.dot(Vt.T, np.dot(step, U.T))
+
+        # 6. Calculate new position after removing rotation
+        Q_aligned = np.dot(Q_centered, R)
+
+        # 7. Corrected displacement
+        corrected_displacements = Q_aligned - P_centered
+
+        return self._normalize(corrected_displacements.flatten())
+
+    def _print_mobile(self, **kwargs):
+        """
+        Print values for mobile atoms from multiple lists with custom titles.
+        **kwargs: Pairs of title=list, where each list contains values for all atoms.
+        Example: self._print_mobile(energy=energies, force=forces)
+        """
+        for title, data_list in kwargs.items():
+            if len(data_list) != self.n_atoms:
+                raise ValueError(f"List '{title}' must have n_atoms elements")
+
+        for i in np.arange(self.n_atoms):
+            if self.mobile_mask[i]:
+                info = [f"AtomID: {i:3d}"]
+                for title, data_list in kwargs.items():
+                    info.append(f"{title} = {data_list[i]}")
+                print(" | ".join(info))
+
+    def _normalize(self,N):
+        """
+        Normalize N vector
+        """
+        N_mask=np.zeros_like(N)
+        for i in range(self.n_atoms):
+            if self.mobile_mask[i]:
+                N_mask[3*i:3*i+3]=N[3*i:3*i+3]
+        try:
+            return N_mask / np.linalg.norm(N_mask)
+        except:
+            raise ValueError("Failed to normalize N vector")
