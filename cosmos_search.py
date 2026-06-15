@@ -1339,11 +1339,18 @@ class GraSMoSSearch:
             for n in range(1, self.max_gaussians + 1):
                 # ── Dimer rotation (skipped for topology-changing moves whose
                 #     reaction coordinate has high curvature) ──
-                if getattr(self, '_lock_direction', False):
+                locked = getattr(self, '_lock_direction', False)
+                if locked:
                     N = N0
+                    # Rodrigues rotation preserves bond lengths — safe to
+                    # use 3× larger displacement without breaking bonds.
+                    dr_avg = self.average_dr * 3.0
+                    dr_max = self.max_dr * 3.0
                 else:
                     N = self._bias_dimer_rotation_ase(climb_atoms, N0)
-                displace = get_displace(N,self.mobile_mask,self.n_mobile,self.average_dr,self.max_dr)
+                    dr_avg = self.average_dr
+                    dr_max = self.max_dr
+                displace = get_displace(N, self.mobile_mask, self.n_mobile, dr_avg, dr_max)
                 Norm_dist = np.linalg.norm(displace)
 
                 # --- Adaptive Gaussian width ---
