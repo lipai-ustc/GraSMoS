@@ -69,6 +69,14 @@ class GraSMoSSearch:
                     'calls': 0, 'accepted': 0, 'energy_drop': 0.0,
                     'new_minima': 0
                 }
+            # Per-scheme tracking (for adapting scheme-level probabilities)
+            self._scheme_stats = {}
+            for s in range(self.n_rd_scheme):
+                self._scheme_stats[s] = {
+                    'calls': 0, 'accepted': 0, 'energy_drop': 0.0,
+                    'new_minima': 0
+                }
+            self._initial_rd_ratio_scheme = list(self.rd_ratio_scheme)
             # Store initial ratios so we never drift too far from user intent
             self._initial_rd_ratio_mode = [list(r) for r in self.rd_ratio_mode]
             self._step_counter = 0
@@ -352,9 +360,13 @@ class GraSMoSSearch:
         modes=self.rd_mode
         ratio_mode=self.rd_ratio_mode[scheme]
 
-        # ── Record which modes participate (for adaptive tracking) ──
+        # ── Record which scheme was selected (for adaptive tracking) ──
         if self.adaptive:
             self._last_scheme = scheme
+            # Only lock dimer for bond_switch-dominated schemes (weight ≥ 0.5)
+            bs_idx = modes.index('bond_switch') if 'bond_switch' in modes else -1
+            if bs_idx >= 0 and ratio_mode[bs_idx] >= 0.5:
+                self._lock_direction = True
 
         N=np.zeros(3*self.n_atoms)
         for i,mode in enumerate(modes):
@@ -798,11 +810,6 @@ class GraSMoSSearch:
         rotate_group(group_i, sign * theta)
         rotate_group(group_j, -sign * theta)
 
-        # Flag: skip dimer rotation for this step — bond_switch generates a
-        # geometrically precise topology-changing direction whose high
-        # curvature would be counteracted by the low-curvature-seeking dimer.
-        self._lock_direction = True
-
         return N
 
     def _generate_rd_shell(self, atoms):
@@ -1182,12 +1189,13 @@ class GraSMoSSearch:
 
     def _update_mode_stats(self, scheme, delta_E, metrop_accepted, is_new):
         """
-        Update per-mode performance counters after one MC step.
+        Update per-mode AND per-scheme performance counters after one MC step.
 
         All modes that contributed to the step (ratio > 0) receive equal
-        fractional credit.  This is approximate but unbiased in expectation
-        when mode weights are stationary between updates.
+        fractional credit.  The selected scheme receives full credit.
         """
+        if not self.adaptive:
+            return
         ratio_mode = self.rd_ratio_mode[scheme]
         active = [i for i, w in enumerate(ratio_mode) if w > 1e-10]
         if not active:
@@ -1204,23 +1212,29 @@ class GraSMoSSearch:
             if is_new:
                 s['new_minima'] += share
 
+        # Scheme-level credit (full credit to the selected scheme)
+        if scheme in self._scheme_stats:
+            ss = self._scheme_stats[scheme]
+            ss['calls'] += 1
+            if metrop_accepted:
+                ss['accepted'] += 1
+            ss['energy_drop'] += improvement
+            if is_new:
+                ss['new_minima'] += 1
+
     def _recompute_adaptive_weights(self):
         """
-        Recompute per-mode weights based on historical performance.
+        Recompute per-mode weights AND scheme-level probabilities.
 
-        Scoring formula (UCB-inspired):
-            score = accept_rate^α  ×  (avg_energy_drop + ε)
-
-        Scores are smoothed via EMA against the previous weights, then
-        normalised.  A floor (adaptive_floor × max_weight) prevents any
-        mode from dropping to zero, preserving exploration.
-
-        Only the first scheme's mode weights are updated; scheme-level
-        probabilities are left unchanged.
+        Mode weights use UCB-inspired scoring and are synced to all schemes.
+        Scheme probabilities are recomputed the same way from per-scheme
+        statistics, so schemes whose dominant modes consistently perform
+        better receive more sampling weight.
         """
         stats = self._mode_stats
         n_modes = self.n_rd_mode
-        epsilon = 0.01  # small offset so modes with zero improvement get some score
+        epsilon = 0.01
+        alpha = self.adaptive_alpha
 
         raw_scores = np.zeros(n_modes)
         for i, mode_name in enumerate(self.rd_mode):
@@ -1228,17 +1242,15 @@ class GraSMoSSearch:
             calls = max(s['calls'], 1)
             accept_rate = s['accepted'] / calls
             avg_drop = s['energy_drop'] / calls + epsilon
-            raw_scores[i] = (accept_rate ** self.adaptive_alpha) * avg_drop
+            raw_scores[i] = (accept_rate ** alpha) * avg_drop
 
-        # ── EMA smoothing against previous weights ──
-        prev = np.array(self.rd_ratio_mode[0], dtype=float)
+        prev_modes = np.array(self.rd_ratio_mode[0], dtype=float)
         if raw_scores.sum() < 1e-12:
-            new_raw = prev
+            blended = prev_modes / prev_modes.sum()
         else:
             new_raw = raw_scores / raw_scores.sum()
-
-        blended = (self.adaptive_smoothing * new_raw
-                   + (1.0 - self.adaptive_smoothing) * prev)
+            blended = (self.adaptive_smoothing * new_raw
+                       + (1.0 - self.adaptive_smoothing) * prev_modes)
 
         # ── Apply exploration floor ──
         floor_val = self.adaptive_floor * blended.max() if blended.max() > 0 else 0.01
@@ -1264,8 +1276,31 @@ class GraSMoSSearch:
                 new_w = scheme_weights.copy()
             self.rd_ratio_mode[s] = new_w.tolist()
 
+        # ── Scheme-level adaptation ──
+        # Each scheme gets scored by its dominant mode's performance,
+        # so schemes whose focused strategy is working get more sampling.
+        n_schemes = self.n_rd_scheme
+        scheme_raw = np.zeros(n_schemes)
+        for s in range(n_schemes):
+            ss = self._scheme_stats.get(s, {'calls': 0, 'accepted': 0, 'energy_drop': 0.0})
+            calls = max(ss['calls'], 1)
+            acc_rate = ss['accepted'] / calls
+            avg_drop = ss['energy_drop'] / calls + epsilon
+            scheme_raw[s] = (acc_rate ** alpha) * avg_drop
+
+        prev_sch = np.array(self.rd_ratio_scheme, dtype=float)
+        if scheme_raw.sum() > 1e-12:
+            sch_new = scheme_raw / scheme_raw.sum()
+            blended_sch = (self.adaptive_smoothing * sch_new
+                           + (1.0 - self.adaptive_smoothing) * prev_sch)
+            sfloor = self.adaptive_floor * blended_sch.max() if blended_sch.max() > 0 else 0.01
+            blended_sch = np.maximum(blended_sch, sfloor)
+            blended_sch = blended_sch / blended_sch.sum()
+            self.rd_ratio_scheme = blended_sch.tolist()
+
         if self.debug:
             print("\n--- Adaptive weights updated ---")
+            print(f"  Scheme probs: {[f'{p:.3f}' for p in self.rd_ratio_scheme]}")
             for s in range(self.n_rd_scheme):
                 print(f"  Scheme {s}: {self.rd_ratio_mode[s]}")
             for i, mode_name in enumerate(self.rd_mode):
@@ -1342,10 +1377,12 @@ class GraSMoSSearch:
                 locked = getattr(self, '_lock_direction', False)
                 if locked:
                     N = N0
-                    # Rodrigues rotation preserves bond lengths — safe to
-                    # use 3× larger displacement without breaking bonds.
-                    dr_avg = self.average_dr * 3.0
-                    dr_max = self.max_dr * 3.0
+                    # Rodrigues rotation produces physically meaningful,
+                    # non-uniform displacements (atoms far from rotation
+                    # axis move more).  Use a large max_dr to avoid capping
+                    # the periphery and shrinking the entire move.
+                    dr_avg = self.average_dr * 4.0
+                    dr_max = float('inf')
                 else:
                     N = self._bias_dimer_rotation_ase(climb_atoms, N0)
                     dr_avg = self.average_dr
@@ -1766,7 +1803,6 @@ class GraSMoSSearch:
         Q_centered = Q - centroid_Q
 
         # 3. Calculate covariance matrix H (Kabsch Algorithm)
-        # H = P^T * Q
         H = np.dot(P_centered.T, Q_centered)
 
         # 4. Singular Value Decomposition SVD
@@ -1790,7 +1826,7 @@ class GraSMoSSearch:
 
     def _print_mobile(self, **kwargs):
         """
- custom titles.
+        Print values for mobile atoms from multiple lists with custom titles.
         **kwargs: Pairs of title=list, where each list contains values for all atoms.
         Example: self._print_mobile(energy=energies, force=forces)
         """

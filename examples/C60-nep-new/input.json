@@ -15,16 +15,19 @@
     "random_direction": {
       "mode": ["thermo","atomic","nl","community","bond_switch","laplacian"],
       "ratio": [
-        [[0.05, 0.00, 0.45, 0.20, 0.30, 0.00], 0.4],
-        [[0.10, 0.10, 0.10, 0.20, 0.30, 0.20], 0.6]
+        [[0.00, 0.00, 0.90, 0.05, 0.00, 0.05], 0.35],
+        [[0.10, 0.10, 0.50, 0.15, 0.10, 0.05], 0.25],
+        [[0.05, 0.05, 0.05, 0.15, 0.60, 0.10], 0.15],
+        [[0.10, 0.10, 0.10, 0.20, 0.20, 0.30], 0.15],
+        [[0.10, 0.10, 0.10, 0.50, 0.10, 0.10], 0.10]
       ],
-      "rotation_param": 20,
+      "rotation_param": 8,
       "AE_factor": 1,
       "adaptive": true,
       "adaptive_interval": 20,
-      "adaptive_alpha": 2.0,
-      "adaptive_floor": 0.05,
-      "adaptive_smoothing": 0.7,
+      "adaptive_alpha": 3.0,
+      "adaptive_floor": 0.02,
+      "adaptive_smoothing": 0.5,
       "atomic_energy_calculator": {
         "type": "nep",
         "model": "C.txt"
@@ -32,7 +35,7 @@
       "climbing_optimizer": {
         "max_steps": 100,
         "fmax": 0.05,
-        "relaxed_fmax": 0.2,
+        "relaxed_fmax": 0.1,
         "adaptive_relaxation": true
       }
     },
@@ -42,7 +45,7 @@
     },
     "displace": {
       "average_dr": 0.2,
-      "max_dr": 0.35
+      "max_dr": 0.5
     }
   },
   "optimizer": {
