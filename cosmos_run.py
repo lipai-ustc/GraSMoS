@@ -362,9 +362,24 @@ def main() -> None:
     
     # Run GraSMoS global optimization
     minima_pool, energies = grasmos.run(steps=mc_steps)
-    
+
     print("\nGraSMoS search completed!")
     print(f"Found {len(minima_pool)} energy minimum structures")
     if energies:
         print(f"Lowest energy: {min(energies):.6f} eV")
-   
+    print(f"Results saved to: {output_dir}")
+    print(f"All minima structures in: {os.path.join(output_dir, 'all_minima.xyz')}")
+    print(f"Best structure saved to: {os.path.join(output_dir, 'best_str.xyz')}")
+
+    print('\n\n======================================    End of GraSMoS Search    ===================================\n')
+
+    # Calculate and print total execution time
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    hours = int(elapsed_time // 3600)
+    minutes = int((elapsed_time % 3600) // 60)
+    seconds = elapsed_time % 60
+    print(f"Total execution time: {hours:02d}:{minutes:02d}:{seconds:06.3f}")
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,60 @@
+{
+  "system": {
+    "name": "C60",
+    "task": "global_search"
+  },
+  "potential": {
+    "type": "nep",
+    "model": "C.txt"
+  },
+  "monte_carlo": {
+    "steps": 5000,
+    "temperature": 1000
+  },
+  "climbing": {
+    "random_direction": {
+      "mode": ["thermo","atomic","nl","community","bond_switch","laplacian"],
+      "ratio": [
+        [[0.05, 0.00, 0.45, 0.20, 0.30, 0.00], 0.4],
+        [[0.10, 0.10, 0.10, 0.20, 0.30, 0.20], 0.6]
+      ],
+      "rotation_param": 20,
+      "AE_factor": 1,
+      "adaptive": true,
+      "adaptive_interval": 20,
+      "adaptive_alpha": 2.0,
+      "adaptive_floor": 0.05,
+      "adaptive_smoothing": 0.7,
+      "atomic_energy_calculator": {
+        "type": "nep",
+        "model": "C.txt"
+      },
+      "climbing_optimizer": {
+        "max_steps": 100,
+        "fmax": 0.05,
+        "relaxed_fmax": 0.2,
+        "adaptive_relaxation": true
+      }
+    },
+    "gaussian": {
+      "height": 0.8,
+      "Nmax": 25
+    },
+    "displace": {
+      "average_dr": 0.2,
+      "max_dr": 0.35
+    }
+  },
+  "optimizer": {
+    "max_steps": 100,
+    "fmax": 0.05
+  },
+  "mobile_control": {
+    "mode": "all"
+  },
+  "output": {
+    "directory": "grasmos_output",
+    "rd_xyz": true,
+    "debug": false
+  }
+}
