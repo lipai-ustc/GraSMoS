@@ -777,8 +777,10 @@ class GraSMoSSearch:
         rot_axis = rand_vec / rn
 
         # ── Large rotation angle: uniform in [π/6, π/2] (~30°-90°) ──
+        # Both fragments rotate in the same direction → rigid bond rotation,
+        # preserving |i−j| at all angles (Rodrigues on the same axis).
         theta = np.random.uniform(np.pi / 6.0, np.pi / 2.0)
-        # Random sign: +θ for group_i, -θ for group_j (or vice versa)
+        # Random sign: +θ for both groups, or −θ for both
         sign = 1.0 if np.random.random() < 0.5 else -1.0
 
         # ── Build the two neighbour groups from the adjacency ──
@@ -796,7 +798,7 @@ class GraSMoSSearch:
 
         # ── Apply rotation via Rodrigues' formula ──
         # displacement = R(axis, ±θ)·v - v,  where v = r_k - midpoint
-        # R·v = v·cosθ + (axis×v)·sinθ + axis·(axis·v)·(1-cosθ)
+        # Angle is bounded at π/3 so bond atoms stay ≥ 0.7 Å apart.
         N = np.zeros(3 * self.n_atoms)
 
         def rotate_group(group_indices, angle):
@@ -810,7 +812,7 @@ class GraSMoSSearch:
                 N[3 * idx:3 * idx + 3] = v_rot - v
 
         rotate_group(group_i, sign * theta)
-        rotate_group(group_j, -sign * theta)
+        rotate_group(group_j, sign * theta)  # same direction — rigid bond rotation
 
         return N
 
@@ -1773,49 +1775,30 @@ class GraSMoSSearch:
         :param vec: Original displacement vector (N, 3)
         :return: Corrected displacement vector (N, 3)
         """
-        # 1. Calculate initial position P and displaced position Q
         P = pos
         Q = pos + vec
-
-        # 2. Remove translation: move centroid to origin
         centroid_P = np.mean(P, axis=0)
         centroid_Q = np.mean(Q, axis=0)
-
         P_centered = P - centroid_P
         Q_centered = Q - centroid_Q
-
-        # 3. Calculate covariance matrix H (Kabsch Algorithm)
         H = np.dot(P_centered.T, Q_centered)
-
-        # 4. Singular Value Decomposition SVD
         U, S, Vt = np.linalg.svd(H)
-
-        # 5. Calculate rotation matrix R
         d = np.linalg.det(np.dot(Vt.T, U.T))
         step = np.eye(3)
         if d < 0:
             step[2, 2] = -1
-
         R = np.dot(Vt.T, np.dot(step, U.T))
-
-        # 6. Calculate new position after removing rotation
         Q_aligned = np.dot(Q_centered, R)
-
-        # 7. Corrected displacement
         corrected_displacements = Q_aligned - P_centered
-
         return self._normalize(corrected_displacements.flatten())
 
     def _print_mobile(self, **kwargs):
         """
         Print values for mobile atoms from multiple lists with custom titles.
-        **kwargs: Pairs of title=list, where each list contains values for all atoms.
-        Example: self._print_mobile(energy=energies, force=forces)
         """
         for title, data_list in kwargs.items():
             if len(data_list) != self.n_atoms:
                 raise ValueError(f"List '{title}' must have n_atoms elements")
-
         for i in np.arange(self.n_atoms):
             if self.mobile_mask[i]:
                 info = [f"AtomID: {i:3d}"]
@@ -1834,4 +1817,4 @@ class GraSMoSSearch:
         try:
             return N_mask / np.linalg.norm(N_mask)
         except:
-            raise ValueErro
+            raise ValueError("Failed to normalize N vector")
