@@ -1408,10 +1408,8 @@ class GraSMoSSearch:
 
                 climb_atoms.set_positions(climb_atoms.get_positions() + displace)
 
-                # ── Overlap check: reject if any atom pair is too close ──
+                # ── Overlap guard: skip climb if atoms are too close ──
                 if self._min_pair_distance(climb_atoms) < 0.6:
-                    if self.debug:
-                        print(f"  Gaussian #{n}: overlap detected, skipping climb")
                     break
 
                 tBE=climb_atoms.get_potential_energy()   # potential energy on bias potential energy surface
@@ -1810,4 +1808,42 @@ class GraSMoSSearch:
         :param vec: Original displacement vector (N, 3)
         :return: Corrected displacement vector (N, 3)
         """
-  
+        P = pos
+        Q = pos + vec
+        centroid_P = np.mean(P, axis=0)
+        centroid_Q = np.mean(Q, axis=0)
+        P_centered = P - centroid_P
+        Q_centered = Q - centroid_Q
+        H = np.dot(P_centered.T, Q_centered)
+        U, S, Vt = np.linalg.svd(H)
+        d = np.linalg.det(np.dot(Vt.T, U.T))
+        step = np.eye(3)
+        if d < 0:
+            step[2, 2] = -1
+        R = np.dot(Vt.T, np.dot(step, U.T))
+        Q_aligned = np.dot(Q_centered, R)
+        corrected_displacements = Q_aligned - P_centered
+        return self._normalize(corrected_displacements.flatten())
+
+    def _print_mobile(self, **kwargs):
+        """Print values for mobile atoms from multiple lists."""
+        for title, data_list in kwargs.items():
+            if len(data_list) != self.n_atoms:
+                raise ValueError(f"List '{title}' must have n_atoms elements")
+        for i in np.arange(self.n_atoms):
+            if self.mobile_mask[i]:
+                info = [f"AtomID: {i:3d}"]
+                for title, data_list in kwargs.items():
+                    info.append(f"{title} = {data_list[i]}")
+                print(" | ".join(info))
+
+    def _normalize(self,N):
+        """Normalize N vector"""
+        N_mask=np.zeros_like(N)
+        for i in range(self.n_atoms):
+            if self.mobile_mask[i]:
+                N_mask[3*i:3*i+3]=N[3*i:3*i+3]
+        try:
+            return N_mask / np.linalg.norm(N_mask)
+        except:
+            raise ValueError("Failed to normalize N vector")
