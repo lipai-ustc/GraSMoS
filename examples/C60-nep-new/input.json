@@ -15,11 +15,11 @@
     "random_direction": {
       "mode": ["thermo","atomic","nl","community","bond_switch","laplacian"],
       "ratio": [
-        [[0.00, 0.00, 1.00, 0.00, 0.00, 0.00], 0.16],
-        [[0.00, 0.00, 0.00, 0.00, 1.00, 0.00], 0.16],
-        [[0.00, 0.00, 0.00, 0.00, 0.00, 1.00], 0.16],
-        [[0.00, 1.00, 0.00, 0.00, 0.00, 0.00], 0.16],
-        [[0.00, 0.00, 0.00, 1.00, 0.00, 0.00], 0.16],
+        [[0.00, 0.00, 1.00, 0.00, 0.00, 0.00], 0.16, {"max_dr": 1.0, "average_dr": 0.4}],
+        [[0.00, 0.00, 0.00, 0.00, 1.00, 0.00], 0.16, {"max_dr": 2.0, "average_dr": 0.6, "gaussian_height": 1.2, "max_gaussians": 30, "rotation_param": null}],
+        [[0.00, 0.00, 0.00, 0.00, 0.00, 1.00], 0.16, {"max_dr": 0.3, "average_dr": 0.1}],
+        [[0.00, 1.00, 0.00, 0.00, 0.00, 0.00], 0.16, {"max_dr": 0.5, "average_dr": 0.2}],
+        [[0.00, 0.00, 0.00, 1.00, 0.00, 0.00], 0.16, {"max_dr": 1.0, "average_dr": 0.4}],
         [[0.10, 0.10, 0.40, 0.15, 0.10, 0.15], 0.20]
       ],
       "rotation_param": 8,
@@ -29,36 +29,13 @@
       "adaptive_alpha": 3.0,
       "adaptive_floor": 0.02,
       "adaptive_smoothing": 0.5,
-      "atomic_energy_calculator": {
-        "type": "nep",
-        "model": "C.txt"
-      },
-      "climbing_optimizer": {
-        "max_steps": 100,
-        "fmax": 0.05,
-        "relaxed_fmax": 0.1,
-        "adaptive_relaxation": true
-      }
+      "atomic_energy_calculator": {"type": "nep", "model": "C.txt"},
+      "climbing_optimizer": {"max_steps": 100, "fmax": 0.05, "relaxed_fmax": 0.1, "adaptive_relaxation": true}
     },
-    "gaussian": {
-      "height": 0.8,
-      "Nmax": 25
-    },
-    "displace": {
-      "average_dr": 0.2,
-      "max_dr": 0.5
-    }
+    "gaussian": {"height": 0.8, "Nmax": 25},
+    "displace": {"average_dr": 0.2, "max_dr": 0.5}
   },
-  "optimizer": {
-    "max_steps": 100,
-    "fmax": 0.05
-  },
-  "mobile_control": {
-    "mode": "all"
-  },
-  "output": {
-    "directory": "grasmos_output",
-    "rd_xyz": true,
-    "debug": false
-  }
+  "optimizer": {"max_steps": 100, "fmax": 0.05},
+  "mobile_control": {"mode": "all"},
+  "output": {"directory": "grasmos_output", "rd_xyz": true, "debug": false}
 }

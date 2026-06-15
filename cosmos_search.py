@@ -80,6 +80,8 @@ class GraSMoSSearch:
             # Store initial ratios so we never drift too far from user intent
             self._initial_rd_ratio_mode = [list(r) for r in self.rd_ratio_mode]
             self._step_counter = 0
+        # Per-scheme parameter overrides (always stored, empty dicts = use defaults)
+        self._scheme_params = random_direction.get('scheme_params', [])
         # print(self.direction_weights)
         # Optimizer parameters in climbing with bias potential
         self.cl_opt_fmax=random_direction['climb_optimizer']['fmax']
@@ -1224,62 +1226,22 @@ class GraSMoSSearch:
 
     def _recompute_adaptive_weights(self):
         """
-        Recompute per-mode weights AND scheme-level probabilities.
+        Recompute scheme-level probabilities based on historical performance.
 
-        Mode weights use UCB-inspired scoring and are synced to all schemes.
-        Scheme probabilities are recomputed the same way from per-scheme
-        statistics, so schemes whose dominant modes consistently perform
-        better receive more sampling weight.
+        Each scheme is a fixed strategy (mode weights are set by the user and
+        never changed).  Adaptive weighting only shifts *which strategy* is
+        sampled more often, leaving each strategy's internal mix intact.
+
+        Scoring (same UCB-inspired formula as mode-level):
+            score = accept_rate^α  ×  (avg_energy_drop + ε)
+
+        Scheme probabilities are EMA-smoothed and protected by an
+        exploration floor to prevent any strategy from being starved.
         """
-        stats = self._mode_stats
-        n_modes = self.n_rd_mode
         epsilon = 0.01
         alpha = self.adaptive_alpha
-
-        raw_scores = np.zeros(n_modes)
-        for i, mode_name in enumerate(self.rd_mode):
-            s = stats[mode_name]
-            calls = max(s['calls'], 1)
-            accept_rate = s['accepted'] / calls
-            avg_drop = s['energy_drop'] / calls + epsilon
-            raw_scores[i] = (accept_rate ** alpha) * avg_drop
-
-        prev_modes = np.array(self.rd_ratio_mode[0], dtype=float)
-        if raw_scores.sum() < 1e-12:
-            blended = prev_modes / prev_modes.sum()
-        else:
-            new_raw = raw_scores / raw_scores.sum()
-            blended = (self.adaptive_smoothing * new_raw
-                       + (1.0 - self.adaptive_smoothing) * prev_modes)
-
-        # ── Apply exploration floor ──
-        floor_val = self.adaptive_floor * blended.max() if blended.max() > 0 else 0.01
-        blended = np.maximum(blended, floor_val)
-        blended = blended / blended.sum()
-
-        # Apply to ALL schemes so they stay in sync.  Each scheme preserves
-        # the same per-mode relative proportions but may differ in which
-        # modes participate (some schemes set zero weight for certain modes,
-        # which adaptive won't resurrect — that's intentional: if a scheme
-        # was designed without a mode, we don't force it in).
-        for s in range(self.n_rd_scheme):
-            scheme_weights = np.array(self.rd_ratio_mode[s], dtype=float)
-            # Blend: keep zeros where original was zero, apply blended
-            # weights where original was non-zero (renormalised)
-            mask = scheme_weights > 1e-10
-            if mask.sum() > 0:
-                subset = blended[mask]
-                subset = subset / subset.sum()
-                new_w = scheme_weights.copy()
-                new_w[mask] = subset
-            else:
-                new_w = scheme_weights.copy()
-            self.rd_ratio_mode[s] = new_w.tolist()
-
-        # ── Scheme-level adaptation ──
-        # Each scheme gets scored by its dominant mode's performance,
-        # so schemes whose focused strategy is working get more sampling.
         n_schemes = self.n_rd_scheme
+
         scheme_raw = np.zeros(n_schemes)
         for s in range(n_schemes):
             ss = self._scheme_stats.get(s, {'calls': 0, 'accepted': 0, 'energy_drop': 0.0})
@@ -1288,26 +1250,26 @@ class GraSMoSSearch:
             avg_drop = ss['energy_drop'] / calls + epsilon
             scheme_raw[s] = (acc_rate ** alpha) * avg_drop
 
-        prev_sch = np.array(self.rd_ratio_scheme, dtype=float)
+        prev = np.array(self.rd_ratio_scheme, dtype=float)
         if scheme_raw.sum() > 1e-12:
-            sch_new = scheme_raw / scheme_raw.sum()
-            blended_sch = (self.adaptive_smoothing * sch_new
-                           + (1.0 - self.adaptive_smoothing) * prev_sch)
-            sfloor = self.adaptive_floor * blended_sch.max() if blended_sch.max() > 0 else 0.01
-            blended_sch = np.maximum(blended_sch, sfloor)
-            blended_sch = blended_sch / blended_sch.sum()
-            self.rd_ratio_scheme = blended_sch.tolist()
+            new_weights = scheme_raw / scheme_raw.sum()
+            blended = (self.adaptive_smoothing * new_weights
+                       + (1.0 - self.adaptive_smoothing) * prev)
+            floor_val = self.adaptive_floor * blended.max() if blended.max() > 0 else 0.01
+            blended = np.maximum(blended, floor_val)
+            blended = blended / blended.sum()
+            self.rd_ratio_scheme = blended.tolist()
 
         if self.debug:
-            print("\n--- Adaptive weights updated ---")
-            print(f"  Scheme probs: {[f'{p:.3f}' for p in self.rd_ratio_scheme]}")
-            for s in range(self.n_rd_scheme):
-                print(f"  Scheme {s}: {self.rd_ratio_mode[s]}")
-            for i, mode_name in enumerate(self.rd_mode):
-                s = stats[mode_name]
-                print(f"  {mode_name:15s}: calls={s['calls']:4d}  "
-                      f"acc_rate={s['accepted']/max(s['calls'],1):.2f}  "
-                      f"w={blended[i]:.3f}")
+            print("\n--- Adaptive scheme weights updated ---")
+            for s in range(n_schemes):
+                ss = self._scheme_stats.get(s, {})
+                c = max(ss.get('calls', 0), 1)
+                print(f"  Scheme {s}: calls={c:4d}  "
+                      f"acc_rate={ss.get('accepted',0)/c:.2f}  "
+                      f"avg_drop={ss.get('energy_drop',0)/c:.3f}  "
+                      f"prob={self.rd_ratio_scheme[s]:.3f}  "
+                      f"modes={self.rd_ratio_mode[s]}")
             print("")
 
     def _get_real_energy(self, atoms):
@@ -1371,6 +1333,24 @@ class GraSMoSSearch:
             gaussian_params = []
             prev_climb_energy = basin_energy  # Track energy for adaptive width
             adaptive_gw = None                # Adaptive Gaussian width (None = auto-initialize)
+
+            # ── Per-scheme parameter overrides (restored after step) ──
+            _saved = {}
+            scheme = getattr(self, '_last_scheme', 0)
+            if scheme < len(self._scheme_params):
+                overrides = self._scheme_params[scheme]
+                for key in ['average_dr', 'max_dr', 'gaussian_height', 'max_gaussians']:
+                    if key in overrides:
+                        _saved[key] = getattr(self, key)
+                        setattr(self, key, overrides[key])
+                if 'rotation_param' in overrides:
+                    rp = overrides['rotation_param']
+                    if rp is None:
+                        self._lock_direction = True
+                    else:
+                        _saved['quadra_a'] = self.quadra_a
+                        self.quadra_a = rp
+
             for n in range(1, self.max_gaussians + 1):
                 # ── Dimer rotation (skipped for topology-changing moves whose
                 #     reaction coordinate has high curvature) ──
@@ -1518,8 +1498,10 @@ class GraSMoSSearch:
                 if self._step_counter % self.adaptive_interval == 0:
                     self._recompute_adaptive_weights()
 
-            # Reset topology-change flag for the next step
+            # Reset per-step flags and restore any scheme-param overrides
             self._lock_direction = False
+            for key, val in _saved.items():
+                setattr(self, key, val)
 
             # Output current step information
             print(f"Step {step+1}: Energy = {new_basin_energy:.6f} eV")
@@ -1852,4 +1834,4 @@ class GraSMoSSearch:
         try:
             return N_mask / np.linalg.norm(N_mask)
         except:
-            raise ValueError("Failed to normalize N vector")
+            raise ValueErro

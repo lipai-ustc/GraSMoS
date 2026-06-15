@@ -95,6 +95,14 @@ def main() -> None:
     rd_config = climb_config.get('random_direction', {})
     rd_mode = rd_config.get('mode', ['thermo','atomic']) # Default method according to the original SSW algorithm
     rd_ratio = rd_config.get('ratio', [[[0.5,0.5],1]])
+    # Parse per-scheme parameter overrides (optional third element in each ratio entry)
+    scheme_params = []
+    for entry in rd_ratio:
+        if len(entry) >= 3:
+            scheme_params.append(entry[2])
+        else:
+            scheme_params.append({})
+    #
     element_weights = rd_config.get('element_weights', {}) # additional weight based on element type
     direction_weights = rd_config.get('direction_weights', [1,1,1]) # additional weight based on direction
     quadra_param=rd_config.get('rotation_param', 10)
@@ -161,6 +169,7 @@ def main() -> None:
     random_direction={
         'mode': rd_mode,
         'ratio': rd_ratio,
+        'scheme_params': scheme_params,
         'element_weights': element_weights,
         'direction_weights': direction_weights,
         'quadra_param': quadra_param,
