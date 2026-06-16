@@ -1409,7 +1409,7 @@ class GraSMoSSearch:
                 climb_atoms.set_positions(climb_atoms.get_positions() + displace)
 
                 # ── Overlap guard: skip climb if atoms are too close ──
-                if self._min_pair_distance(climb_atoms) < 0.6:
+                if self._min_pair_distance(climb_atoms) < 0.4:
                     break
 
                 tBE=climb_atoms.get_potential_energy()   # potential energy on bias potential energy surface
@@ -1478,7 +1478,7 @@ class GraSMoSSearch:
             new_basin_energy = self._get_real_energy(new_basin_atoms)
 
             # ── Overlap guard: force rejection if atoms still overlap ──
-            overlap = self._min_pair_distance(new_basin_atoms) < 0.6
+            overlap = self._min_pair_distance(new_basin_atoms) < 0.4
 
             if self.output_xyz:
                 print_xyz(new_basin_atoms,filename=f"climb_{step}.xyz",energy=new_basin_energy,bias_energy=0,displace=displace0)
@@ -1526,7 +1526,9 @@ class GraSMoSSearch:
                 self._add_to_pool(new_basin_atoms)
 
             # ── Adaptive mode tracking ──
-            if self.adaptive:
+            # Skip when overlap forced rejection — it reflects parameter
+            # settings, not the scheme's true quality.
+            if self.adaptive and not overlap:
                 self._update_mode_stats(self._last_scheme, delta_E,
                                         metrop_accepted, is_new_minimum)
                 self._step_counter += 1
