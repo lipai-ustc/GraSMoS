@@ -18,7 +18,7 @@
       "adaptive": true,
       "adaptive_interval": 15,
       "adaptive_alpha": 2.0,
-      "adaptive_floor": 0.05,
+      "adaptive_floor": 0.01,
       "adaptive_smoothing": 0.6,
       "atomic_energy_calculator": {"type": "nep", "model": "C.txt"},
       "climbing_optimizer": {

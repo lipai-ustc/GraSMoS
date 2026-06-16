@@ -4,12 +4,16 @@
   "monte_carlo": {"steps": 5000, "temperature": 1500},
   "climbing": {
     "random_direction": {
-      "mode": ["thermo","atomic","atnl","community","bond_switch","laplacian"],
+      "mode": ["thermo","atomic","nl","atnl","community","bond_switch","laplacian"],
       "ratio": [
-        [[0.10,0.10,0.30,0.20,0.15,0.15], 0.35],
-        [[0.10,0.10,0.30,0.20,0.15,0.15], 0.30, {"max_dr": 0.4, "average_dr": 0.12}],
-        [[0.10,0.10,0.30,0.20,0.15,0.15], 0.25, {"max_dr": 0.15, "average_dr": 0.05}],
-        [[0.10,0.10,0.30,0.20,0.15,0.15], 0.10, {"max_dr": 0.8, "average_dr": 0.25}]
+        [[0.10,0.10,0.20,0.10,0.20,0.15,0.15], 0.20],
+        [[0.10,0.10,0.20,0.10,0.20,0.15,0.15], 0.15, {"max_dr": 0.4, "average_dr": 0.12}],
+        [[0.10,0.10,0.20,0.10,0.20,0.15,0.15], 0.10, {"max_dr": 0.15, "average_dr": 0.05}],
+        [[0.10,0.10,0.20,0.10,0.20,0.15,0.15], 0.05, {"max_dr": 0.8, "average_dr": 0.25}],
+        [[0.20,0.20,0.60,0.00,0.00,0.00,0.00], 0.15],
+        [[0.20,0.20,0.00,0.60,0.00,0.00,0.00], 0.10],
+        [[0.20,0.20,0.00,0.00,0.60,0.00,0.00], 0.05, {"max_dr": 0.8, "average_dr": 0.25, "rotation_param": null}],
+        [[0.20,0.20,0.00,0.00,0.00,0.60,0.00], 0.10]
       ],
       "rotation_param": 15,
       "AE_factor": 2.0,
@@ -17,7 +21,7 @@
       "adaptive": true,
       "adaptive_interval": 15,
       "adaptive_alpha": 2.0,
-      "adaptive_floor": 0.05,
+      "adaptive_floor": 0.01,
       "adaptive_smoothing": 0.6,
       "atomic_energy_calculator": {"type": "nep", "model": "C.txt"},
       "climbing_optimizer": {

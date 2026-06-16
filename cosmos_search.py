@@ -58,7 +58,7 @@ class GraSMoSSearch:
         if self.adaptive:
             self.adaptive_interval = random_direction.get('adaptive_interval', 10)
             self.adaptive_alpha = random_direction.get('adaptive_alpha', 2.0)
-            self.adaptive_floor = random_direction.get('adaptive_floor', 0.05)
+            self.adaptive_floor = random_direction.get('adaptive_floor', 0.01)
             self.adaptive_smoothing = random_direction.get('adaptive_smoothing', 0.7)
 
             # Per-mode tracking: one dict per mode
@@ -1392,7 +1392,9 @@ class GraSMoSSearch:
             score = accept_rate^α  ×  (avg_energy_drop + ε)
 
         Scheme probabilities are EMA-smoothed and protected by an
-        exploration floor to prevent any strategy from being starved.
+        absolute exploration floor (adaptive_floor, default 0.01 = 1%)
+        to prevent any strategy from being starved — even modes with
+        low acceptance rates (e.g. bond_switch) remain explorable.
         """
         epsilon = 0.01
         alpha = self.adaptive_alpha
@@ -1411,7 +1413,17 @@ class GraSMoSSearch:
             new_weights = scheme_raw / scheme_raw.sum()
             blended = (self.adaptive_smoothing * new_weights
                        + (1.0 - self.adaptive_smoothing) * prev)
-            floor_val = self.adaptive_floor * blended.max() if blended.max() > 0 else 0.01
+            # Absolute probability floor: no scheme may fall below
+            # adaptive_floor (default 0.01 = 1%).  This guarantees that
+            # even consistently poor schemes remain explorable — crucial
+            # for modes like bond_switch that have low acceptance rates
+            # but can produce large energy drops when they do work.
+            # Two-pass clip+renorm ensures the floor is truly respected
+            # (a single pass can let values slip below the floor after
+            # renormalization).
+            floor_val = self.adaptive_floor
+            blended = np.maximum(blended, floor_val)
+            blended = blended / blended.sum()
             blended = np.maximum(blended, floor_val)
             blended = blended / blended.sum()
             self.rd_ratio_scheme = blended.tolist()
@@ -2024,3 +2036,4 @@ class GraSMoSSearch:
         if norm < 1e-12:
             return N_mask
         return N_mask / norm
+
