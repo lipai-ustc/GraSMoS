@@ -113,6 +113,7 @@ def main() -> None:
     adaptive_alpha = rd_config.get('adaptive_alpha', 2.0)
     adaptive_floor = rd_config.get('adaptive_floor', 0.05)
     adaptive_smoothing = rd_config.get('adaptive_smoothing', 0.7)
+    lock_dr_factor = rd_config.get('lock_dr_factor', 2.0)
     
     climb_optimizer_config = rd_config.get('climbing_optimizer', {})
     cl_max_steps = climb_optimizer_config.get('max_steps', 100)
@@ -181,6 +182,7 @@ def main() -> None:
         'adaptive_alpha': adaptive_alpha,
         'adaptive_floor': adaptive_floor,
         'adaptive_smoothing': adaptive_smoothing,
+        'lock_dr_factor': lock_dr_factor,
     } 
 
     # 6. Get Climbing configuration (optional)

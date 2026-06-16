@@ -47,6 +47,7 @@ class GraSMoSSearch:
         self.element_scales = np.repeat([self.element_weights.get(symbol, 1.0) for symbol in self.atoms.symbols], 3)  #[1,2,3] -> [1,1,1,2,2,2,3,3,3]
         self.quadra_a = random_direction['quadra_param']
         self.AE_factor = random_direction['AE_factor']
+        self.lock_dr_factor = random_direction.get('lock_dr_factor', 2.0)  # displacement multiplier when dimer is locked
         self.direction_weights = np.tile(random_direction['direction_weights'], self.n_atoms)  # [1,1,0,1,1,0,1,1,0] repeat n_atom times
 
         # ── Adaptive mode weighting ──
@@ -448,14 +449,16 @@ class GraSMoSSearch:
     def _generate_rd_atnl(self, atoms):  # atomic-energy based nl
         """
         Generate random direction using atomic energy-based method.
-        Finds the two atoms with highest energy-based scales and sets their N vectors pointing to each other.
-        Other atoms have zero N vectors.
+        Finds the two atoms with highest energy-based scales and sets their
+        N vectors pointing toward (or away from) each other, then extends
+        the displacement to their first-neighbor shells so the entire
+        high-energy local region participates collectively.
         """
+        from ase.data import covalent_radii
         # Get energy-based scales for each atom
         energy_scales = self._get_energy_based_scales(atoms)
         
         # Find the two atoms with highest energy scales
-        # argsort returns indices in ascending order, so we take the last two
         sorted_indices = np.argsort(energy_scales)
         i = sorted_indices[-1]  # Index of atom with highest energy scale
         j = sorted_indices[-2]  # Index of atom with second highest energy scale
@@ -469,18 +472,42 @@ class GraSMoSSearch:
 
         if np.random.random() < 0.7:
             # Attraction mode (70% probability): atoms point to each other
-            N[3*i:3*i+3] = qj - qi  # Atom i points to atom j
-            N[3*j:3*j+3] = qi - qj  # Atom j points to atom i
+            direction = qj - qi  # overall direction
+            N[3*i:3*i+3] = direction  # Atom i points to atom j
+            N[3*j:3*j+3] = -direction  # Atom j points to atom i
         else:
             # Repulsion mode (30% probability): atoms point away from each other
-            N[3*i:3*i+3] = qi - qj  # Atom i points away from atom j
-            N[3*j:3*j+3] = qj - qi  # Atom j points away from atom i
+            direction = qi - qj
+            N[3*i:3*i+3] = direction  # Atom i points away from atom j
+            N[3*j:3*j+3] = -direction  # Atom j points away from atom i
+
+        # Extend displacement to first-neighbor shell of i and j.
+        # Neighbors move in the same direction as their parent atom,
+        # scaled by their own energy_scales.  This creates a collective
+        # move of the entire high-energy local environment.
+        numbers = atoms.get_atomic_numbers()
+        for k in range(self.n_atoms):
+            if not self.mobile_mask[k] or k == i or k == j:
+                continue
+            dik = atoms.get_distance(i, k, mic=True)
+            djk = atoms.get_distance(j, k, mic=True)
+            ri = covalent_radii[numbers[i]]
+            rk = covalent_radii[numbers[k]]
+            rj = covalent_radii[numbers[j]]
+            neighbor_of_i = dik < 1.25 * (ri + rk)
+            neighbor_of_j = djk < 1.25 * (rj + rk)
+            if neighbor_of_i:
+                N[3*k:3*k+3] = direction * energy_scales[k]
+            elif neighbor_of_j:
+                N[3*k:3*k+3] = -direction * energy_scales[k]
         
         return N
 
     def _generate_rd_nl(self, atoms):
         """
         Generate random direction using non-local bonding pattern method.
+        When atomic energies are available, the pair is biased toward
+        high-energy atoms so that nl targets structurally unfavourable regions.
         """
         if self.n_mobile < 2:
             raise ValueError("Insufficient mobile atoms (need at least 2) for calculation.")
@@ -488,9 +515,25 @@ class GraSMoSSearch:
         max_attempts = 100
         attempts = 0
         N = np.zeros(3 * self.n_atoms)
+
+        # Build energy-biased sampling weights for mobile atoms
+        energy_factors = self._get_energy_factors(atoms)
+        if energy_factors is not None:
+            mobile_weights = np.array([energy_factors[i] for i in self.mobile_atoms])
+            if mobile_weights.sum() > 1e-12:
+                mobile_probs = mobile_weights / mobile_weights.sum()
+            else:
+                mobile_probs = None
+        else:
+            mobile_probs = None
+
         while attempts < max_attempts:
-            # Select two non-neighboring atoms from mobile region
-            i, j = np.random.choice(self.mobile_atoms, 2, replace=False)
+            # Select two non-neighboring atoms — energy-biased when available
+            if mobile_probs is not None:
+                idx = np.random.choice(len(self.mobile_atoms), 2, replace=False, p=mobile_probs)
+                i, j = self.mobile_atoms[idx[0]], self.mobile_atoms[idx[1]]
+            else:
+                i, j = np.random.choice(self.mobile_atoms, 2, replace=False)
             distance = atoms.get_distance(i, j, mic=True)
             if distance > 3.0:  # Only when atomic distance > 3Å
                 # Generate local rigid movement direction according to equation (2) in paper
@@ -503,7 +546,8 @@ class GraSMoSSearch:
             attempts += 1
         
         if attempts == max_attempts:
-            raise ValueError(f"Failed to find atom pair with distance > 3Å after {max_attempts} attempts, cannot generate local rigid movement direction.")
+            # Fallback: use atnl (energy-based pair) instead of failing
+            return self._generate_rd_atnl(atoms)
 
         return N
 
@@ -690,6 +734,10 @@ class GraSMoSSearch:
         creating a twisting motion that preserves bond topology better than single-atom moves.
         Also includes the first-neighbor shell of each bonded atom in the rotation.
 
+        When atomic energies are available, bonds are selected with bias toward
+        high-energy atoms so that rotation targets structurally unfavourable local
+        environments (e.g., strained rings, wrong coordination).
+
         This is the generalized equivalent of the Stone-Wales bond rotation in sp2 carbon,
         but works for any bonding environment.
         """
@@ -701,8 +749,19 @@ class GraSMoSSearch:
             # Fall back to thermo mode if no bonds found
             return self._generate_rd_thermo(atoms)
 
-        # Randomly pick a bond
-        i, j = bonds[np.random.choice(len(bonds))]
+        # Pick a bond, energy-biased toward high-energy atoms when available
+        energy_factors = self._get_energy_factors(atoms)
+        if energy_factors is not None:
+            bond_weights = np.array([
+                max(energy_factors[i], energy_factors[j]) for i, j in bonds
+            ])
+            if bond_weights.sum() > 1e-12:
+                bond_probs = bond_weights / bond_weights.sum()
+                i, j = bonds[np.random.choice(len(bonds), p=bond_probs)]
+            else:
+                i, j = bonds[np.random.choice(len(bonds))]
+        else:
+            i, j = bonds[np.random.choice(len(bonds))]
         qi = atoms.positions[i]
         qj = atoms.positions[j]
 
@@ -874,8 +933,18 @@ class GraSMoSSearch:
         if n_mobile == 0:
             return N
 
-        # Randomly pick a central atom from mobile atoms
-        center = np.random.choice([i for i in range(self.n_atoms) if self.mobile_mask[i]])
+        # Pick central atom, energy-biased toward high-energy atoms when available
+        energy_factors = self._get_energy_factors(atoms)
+        mobile_list = [i for i in range(self.n_atoms) if self.mobile_mask[i]]
+        if energy_factors is not None:
+            center_weights = np.array([energy_factors[i] for i in mobile_list])
+            if center_weights.sum() > 1e-12:
+                center_probs = center_weights / center_weights.sum()
+                center = mobile_list[np.random.choice(len(mobile_list), p=center_probs)]
+            else:
+                center = np.random.choice(mobile_list)
+        else:
+            center = np.random.choice(mobile_list)
         pos_center = atoms.positions[center]
 
         # Identify shell atoms: all mobile atoms within cutoff distance
@@ -1017,41 +1086,77 @@ class GraSMoSSearch:
 
         Uses Louvain community detection on the bond graph to identify
         natural clusters (functional groups, coordination polyhedra, rings),
-        then applies a coordinated displacement to one randomly chosen
-        community. The move type is chosen randomly:
+        then applies a coordinated displacement to one chosen community.
+
+        Community selection and move type are biased by atomic energies
+        when available: high-energy communities get priority, and strained
+        communities favour breathing (expansion) to relieve local stress.
 
         - 40%: rigid translation of the cluster
         - 30%: rigid rotation about the cluster centre of mass
         - 30%: breathing (radial expansion or contraction)
-
-        This preserves local bonding topology, dramatically reducing
-        rejection from bond-breaking events.
+        High-energy communities shift toward breathing; low-energy ones
+        toward translation (safer).
         """
         communities = self._detect_communities(atoms)
         if len(communities) < 2:
             return self._generate_rd_thermo(atoms)
 
-        # Pick a random community (preferring multi-atom ones for efficiency)
-        weights = np.array([len(c) for c in communities], dtype=float)
-        weights = np.maximum(weights - 1.0, 0.1)  # favour larger communities
-        probs = weights / weights.sum()
-        comm_idx = np.random.choice(len(communities), p=probs)
+        # Pick a community — energy-biased when available, size-biased otherwise
+        energy_factors = self._get_energy_factors(atoms)
+        if energy_factors is not None:
+            # Weight = mean_energy_factor × size_factor
+            comm_weights = np.array([
+                np.mean([energy_factors[i] for i in c]) * max(len(c) - 1.0, 0.1)
+                for c in communities
+            ], dtype=float)
+            if comm_weights.sum() > 1e-12:
+                comm_probs = comm_weights / comm_weights.sum()
+                comm_idx = np.random.choice(len(communities), p=comm_probs)
+            else:
+                # Fallback to size-biased
+                weights = np.array([len(c) for c in communities], dtype=float)
+                weights = np.maximum(weights - 1.0, 0.1)
+                comm_probs = weights / weights.sum()
+                comm_idx = np.random.choice(len(communities), p=comm_probs)
+        else:
+            weights = np.array([len(c) for c in communities], dtype=float)
+            weights = np.maximum(weights - 1.0, 0.1)
+            comm_probs = weights / weights.sum()
+            comm_idx = np.random.choice(len(communities), p=comm_probs)
         comm = communities[comm_idx]
 
         if len(comm) < 2:
             return self._generate_rd_thermo(atoms)
 
         N = np.zeros(3 * self.n_atoms)
-        mode_choice = np.random.random()
+        # Move type: high-energy communities favour breathing (stress relief),
+        # low-energy ones favour translation (safe exploration).
+        if energy_factors is not None:
+            avg_energy = np.mean([energy_factors[i] for i in comm])
+            # avg_energy ranges [0.5, 1.0]; 0.75 is midpoint.
+            # Higher → more breathing, lower → more translation.
+            breath_prob = 0.15 + 0.35 * (avg_energy - 0.5)  # 0.15 at low, 0.50 at high
+            rotate_prob = 0.30
+            trans_prob = 1.0 - breath_prob - rotate_prob
+            mode_choice = np.random.random()
+            if mode_choice < trans_prob:
+                mode_choice = 0  # translation
+            elif mode_choice < trans_prob + rotate_prob:
+                mode_choice = 1  # rotation
+            else:
+                mode_choice = 2  # breathing
+        else:
+            mode_choice = np.random.random()
 
-        if mode_choice < 0.4:
+        if mode_choice == 0:
             # Rigid translation of the cluster
             direction = np.random.randn(3)
             direction /= (np.linalg.norm(direction) + 1e-12)
             for idx in comm:
                 N[3 * idx:3 * idx + 3] = direction
 
-        elif mode_choice < 0.7:
+        elif mode_choice == 1:
             # Rigid rotation about the cluster centre of mass
             com = atoms.positions[comm].mean(axis=0)
             axis = np.random.randn(3)
@@ -1443,12 +1548,11 @@ class GraSMoSSearch:
                 locked = getattr(self, '_lock_direction', False)
                 if locked:
                     N = N0
-                    # Rodrigues rotation produces physically meaningful,
-                    # non-uniform displacements (atoms far from rotation
-                    # axis move more).  Use a large max_dr to avoid capping
-                    # the periphery and shrinking the entire move.
-                    dr_avg = self.average_dr * 4.0
-                    dr_max = float('inf')
+                    # Locked dimer preserves the bond-switch reaction coordinate.
+                    # Scale displacement by lock_dr_factor (default 2.0) and keep
+                    # max_dr capped to prevent atoms from crashing together.
+                    dr_avg = self.average_dr * self.lock_dr_factor
+                    dr_max = self.max_dr * self.lock_dr_factor
                 else:
                     N = self._bias_dimer_rotation_ase(climb_atoms, N0)
                     dr_avg = self.average_dr
