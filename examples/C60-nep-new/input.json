@@ -1,33 +1,30 @@
 {
-  "system": {
-    "name": "C60",
-    "task": "global_search"
-  },
-  "potential": {
-    "type": "nep",
-    "model": "C.txt"
-  },
-  "monte_carlo": {
-    "steps": 5000,
-    "temperature": 1000
-  },
+  "system": {"name": "C60", "task": "global_search"},
+  "potential": {"type": "nep", "model": "C.txt"},
+  "monte_carlo": {"steps": 5000, "temperature": 1000},
   "climbing": {
     "random_direction": {
       "mode": ["thermo","atomic","nl","community","bond_switch","laplacian"],
       "ratio": [
-        [[0.00, 0.00, 1.00, 0.00, 0.00, 0.00], 0.30, {"max_dr": 2.0, "average_dr": 0.6}],
-        [[0.00, 0.00, 0.00, 0.00, 1.00, 0.00], 0.25, {"max_dr": 2.0, "average_dr": 0.6, "gaussian_height": 1.2, "max_gaussians": 30, "rotation_param": null}],
-        [[0.00, 0.00, 0.00, 1.00, 0.00, 0.00], 0.15, {"max_dr": 1.0, "average_dr": 0.3}],
-        [[0.00, 0.00, 0.00, 0.00, 0.00, 1.00], 0.15, {"max_dr": 0.4, "average_dr": 0.1}],
-        [[0.20, 0.80, 0.00, 0.00, 0.00, 0.00], 0.15, {"max_dr": 0.5, "average_dr": 0.2}]
+        [[0.00,0.00,1.00,0.00,0.00,0.00],0.06667,{"max_dr":3.0,"average_dr":0.8}],
+        [[0.00,0.00,1.00,0.00,0.00,0.00],0.06667,{"max_dr":1.5,"average_dr":0.4}],
+        [[0.00,0.00,1.00,0.00,0.00,0.00],0.06666,{"max_dr":0.6,"average_dr":0.15}],
+        [[0.00,0.00,0.00,0.00,1.00,0.00],0.06667,{"max_dr":3.0,"average_dr":0.8,"gaussian_height":1.2,"max_gaussians":30,"rotation_param":null}],
+        [[0.00,0.00,0.00,0.00,1.00,0.00],0.06667,{"max_dr":1.5,"average_dr":0.4,"gaussian_height":1.2,"max_gaussians":30,"rotation_param":null}],
+        [[0.00,0.00,0.00,0.00,1.00,0.00],0.06666,{"max_dr":0.6,"average_dr":0.15,"gaussian_height":1.2,"max_gaussians":30,"rotation_param":null}],
+        [[0.00,0.00,0.00,0.00,0.00,1.00],0.06667,{"max_dr":1.0,"average_dr":0.3}],
+        [[0.00,0.00,0.00,0.00,0.00,1.00],0.06667,{"max_dr":0.4,"average_dr":0.1}],
+        [[0.00,0.00,0.00,0.00,0.00,1.00],0.06666,{"max_dr":0.15,"average_dr":0.04}],
+        [[0.00,0.00,0.00,1.00,0.00,0.00],0.06667,{"max_dr":1.5,"average_dr":0.4}],
+        [[0.00,0.00,0.00,1.00,0.00,0.00],0.06667,{"max_dr":0.6,"average_dr":0.15}],
+        [[0.00,0.00,0.00,1.00,0.00,0.00],0.06666,{"max_dr":0.2,"average_dr":0.05}],
+        [[0.20,0.80,0.00,0.00,0.00,0.00],0.06667,{"max_dr":1.0,"average_dr":0.3}],
+        [[0.20,0.80,0.00,0.00,0.00,0.00],0.06667,{"max_dr":0.4,"average_dr":0.1}],
+        [[0.20,0.80,0.00,0.00,0.00,0.00],0.06666,{"max_dr":0.15,"average_dr":0.04}]
       ],
-      "rotation_param": 8,
-      "AE_factor": 1,
-      "adaptive": true,
-      "adaptive_interval": 20,
-      "adaptive_alpha": 3.0,
-      "adaptive_floor": 0.05,
-      "adaptive_smoothing": 0.5,
+      "rotation_param": 8, "AE_factor": 1,
+      "adaptive": true, "adaptive_interval": 30,
+      "adaptive_alpha": 3.0, "adaptive_floor": 0.03, "adaptive_smoothing": 0.5,
       "atomic_energy_calculator": {"type": "nep", "model": "C.txt"},
       "climbing_optimizer": {"max_steps": 100, "fmax": 0.05, "relaxed_fmax": 0.1, "adaptive_relaxation": true}
     },
