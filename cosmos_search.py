@@ -41,7 +41,10 @@ class GraSMoSSearch:
         self.n_rd_mode = len(self.rd_mode)
         self.rd_ratio= random_direction['ratio']
         self.n_rd_scheme = len(self.rd_ratio)
-        self.rd_ratio_scheme = [self.rd_ratio[i][1] for i in range(self.n_rd_scheme)]
+        self.rd_ratio_scheme_raw = [self.rd_ratio[i][1] for i in range(self.n_rd_scheme)]
+        # Normalize scheme probabilities so they always sum to 1.0
+        _total = sum(self.rd_ratio_scheme_raw)
+        self.rd_ratio_scheme = [p / _total for p in self.rd_ratio_scheme_raw]
         self.rd_ratio_mode  =[self.rd_ratio[i][0] for i in range(self.n_rd_scheme)]
         self.element_weights = random_direction['element_weights']
         self.element_scales = np.repeat([self.element_weights.get(symbol, 1.0) for symbol in self.atoms.symbols], 3)  #[1,2,3] -> [1,1,1,2,2,2,3,3,3]
@@ -2036,4 +2039,3 @@ class GraSMoSSearch:
         if norm < 1e-12:
             return N_mask
         return N_mask / norm
-
