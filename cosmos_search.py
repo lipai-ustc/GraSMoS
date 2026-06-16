@@ -51,6 +51,9 @@ class GraSMoSSearch:
 
         # ── Adaptive mode weighting ──
         self.adaptive = random_direction.get('adaptive', False)
+        # ── Per-step flags (always needed regardless of adaptive) ──
+        self._lock_direction = False
+        self._last_scheme = 0
         if self.adaptive:
             self.adaptive_interval = random_direction.get('adaptive_interval', 10)
             self.adaptive_alpha = random_direction.get('adaptive_alpha', 2.0)
@@ -63,7 +66,6 @@ class GraSMoSSearch:
             #  energy_drop  — sum of -ΔE (positive = improvement)
             #  new_minima — steps that found a new unique minimum
             self._mode_stats = {}
-            self._lock_direction = False  # bond_switch skip-dimer flag
             for mode_name in self.rd_mode:
                 self._mode_stats[mode_name] = {
                     'calls': 0, 'accepted': 0, 'energy_drop': 0.0,
@@ -362,13 +364,12 @@ class GraSMoSSearch:
         modes=self.rd_mode
         ratio_mode=self.rd_ratio_mode[scheme]
 
-        # ── Record which scheme was selected (for adaptive tracking) ──
-        if self.adaptive:
-            self._last_scheme = scheme
-            # Only lock dimer for bond_switch-dominated schemes (weight ≥ 0.5)
-            bs_idx = modes.index('bond_switch') if 'bond_switch' in modes else -1
-            if bs_idx >= 0 and ratio_mode[bs_idx] >= 0.5:
-                self._lock_direction = True
+        # ── Record which scheme was selected (needed for per-scheme params + adaptive tracking) ──
+        self._last_scheme = scheme
+        # Only lock dimer for bond_switch-dominated schemes (weight ≥ 0.5)
+        bs_idx = modes.index('bond_switch') if 'bond_switch' in modes else -1
+        if bs_idx >= 0 and ratio_mode[bs_idx] >= 0.5:
+            self._lock_direction = True
 
         N=np.zeros(3*self.n_atoms)
         for i,mode in enumerate(modes):
