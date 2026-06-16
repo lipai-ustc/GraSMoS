@@ -9,6 +9,7 @@ Usage: grasmos [or] python cosmos_run.py
 
 import os
 import sys
+import atexit
 import json
 import numpy as np
 from ase.io import read
@@ -186,11 +187,10 @@ def main() -> None:
 
     gaussian_config=climb_config.get('gaussian',{})
     gaussian_height = gaussian_config.get('height', 0.2)    # w parameter
-    #gaussian_width  = gaussian_config.get('width', 0.2)     # ds parameter
+    gaussian_width  = gaussian_config.get('width', 0.2)     # ds parameter (initial width; adaptively tuned during climb)
     max_gaussians   = gaussian_config.get('Nmax', 20)       # H parameter
-    
-    #gaussian={'gaussian_height': gaussian_height, 'gaussian_width': gaussian_width, 'max_gaussians': max_gaussians}
-    gaussian={'gaussian_height': gaussian_height, 'max_gaussians': max_gaussians}
+
+    gaussian={'gaussian_height': gaussian_height, 'gaussian_width': gaussian_width, 'max_gaussians': max_gaussians}
 
     displace_config=climb_config.get('displace',{})
     average_dr = displace_config.get('average_dr', 0.1)    # displace average step size parameter
@@ -287,8 +287,11 @@ def main() -> None:
     os.makedirs(output_dir, exist_ok=True)
     log_path = os.path.join(output_dir, 'grasmos_log.txt')
     # Redirect stdout to TeeLogger (opens in write mode to clear existing content)
-    sys.stdout = TeeLogger(log_path, mode='w')        
-    
+    tee_logger = TeeLogger(log_path, mode='w')
+    sys.stdout = tee_logger
+    # Ensure stdout is restored and log closed even on crash
+    atexit.register(lambda: (setattr(sys, 'stdout', tee_logger.terminal),
+                              tee_logger.close()))
     print(get_version_info())    #header
     print('\n\n===================================    GraSMoS Input Configuration    ================================\n')
     print(f'\nSystem information:')

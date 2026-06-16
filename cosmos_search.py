@@ -93,6 +93,7 @@ class GraSMoSSearch:
 
         # Climbing parameters
         self.gaussian_height = gaussian['gaussian_height']   # Gaussian potential height
+        self.gaussian_width = gaussian.get('gaussian_width', 0.2)  # Initial Gaussian width (adaptively tuned)
         self.max_gaussians = gaussian['max_gaussians']     # Max number of Gaussians
         self.average_dr = displace['average_dr']    # displace average step size parameter
         self.max_dr = displace['max_dr']     # displace max step size parameter
@@ -251,6 +252,24 @@ class GraSMoSSearch:
         ase_write(trajectory_file, atoms_copy, append=True)
         
         print(f"Found new minimum #{len(self.pool) - 1}: E = {real_e:.6f} eV")
+
+    def _write_trace(self, atoms):
+        """
+        Write a structure to the trace file (all_minima.xyz) for debugging
+        without adding it to the unique minima pool.  This keeps pool/real_energies
+        as the true set of distinct minima while still recording every attempt.
+        """
+        if atoms.calc is None:
+            atoms.calc = self.base_calc
+        try:
+            real_e = atoms.get_potential_energy()
+        except Exception:
+            real_e = 0.0
+        atoms_copy = atoms.copy()
+        atoms_copy.info['E_real'] = real_e
+        atoms_copy.info['minima_index'] = -1  # not a unique minimum
+        trajectory_file = os.path.join(self.output_dir, 'all_minima.xyz')
+        ase_write(trajectory_file, atoms_copy, append=True)
 
     def _get_atomic_energies(self, atoms):
         """
@@ -513,7 +532,7 @@ class GraSMoSSearch:
                     bonds.append((i, j))
         return bonds
 
-    def _build_weighted_adjacency(self, atoms, energy_factors=None):
+    def _build_weighted_adjacency(self, atoms, energy_factors=None, cached_A=None):
         """
         Build a weighted adjacency matrix from the atomic structure using
         covalent-radii-based exponential weights.
@@ -528,11 +547,34 @@ class GraSMoSSearch:
         (less stable) regions, focusing community detection and Laplacian
         analysis where structural changes are most needed.
 
+        If *cached_A* is provided (a pre-built adjacency without energy
+        factors), it is reused and only the energy-factor modulation is
+        reapplied, avoiding redundant O(n^2) distance calculations.
+
         Returns:
             np.ndarray: (n_atoms, n_atoms) symmetric adjacency matrix.
             Only mobile atoms have non-zero entries.
         """
         from ase.data import covalent_radii
+
+        # Reuse cached base adjacency if available (same structure, no
+        # need to recompute distances).  Only reapply energy factors.
+        if cached_A is not None and energy_factors is None:
+            # No energy factors and we have a cached A — just return a copy
+            return cached_A.copy()
+        if cached_A is not None and energy_factors is not None:
+            A = cached_A.copy()
+            n = self.n_atoms
+            for i in range(n):
+                if not self.mobile_mask[i]:
+                    continue
+                for j in range(i + 1, n):
+                    if not self.mobile_mask[j]:
+                        continue
+                    if A[i, j] > 0.01:
+                        A[i, j] *= min(energy_factors[i], energy_factors[j])
+                        A[j, i] = A[i, j]
+            return A
 
         n = self.n_atoms
         positions = atoms.positions
@@ -568,7 +610,7 @@ class GraSMoSSearch:
         Returns:
             np.ndarray of shape (n_atoms,) with integer coordination counts.
         """
-        A = self._build_weighted_adjacency(atoms, energy_factors=energy_factors)
+        A = self._build_weighted_adjacency(atoms, energy_factors=energy_factors, cached_A=getattr(self, '_cached_base_A', None))
         coord = np.zeros(self.n_atoms, dtype=int)
         for i in range(self.n_atoms):
             if self.mobile_mask[i]:
@@ -599,7 +641,7 @@ class GraSMoSSearch:
         """
         energy_factors = self._get_energy_factors(atoms)
         coord = self._get_local_coordination(atoms, energy_factors=energy_factors)
-        A = self._build_weighted_adjacency(atoms, energy_factors=energy_factors)
+        A = self._build_weighted_adjacency(atoms, energy_factors=energy_factors, cached_A=getattr(self, '_cached_base_A', None))
 
         # Helper: does atom k have a neighbour other than exclude_idx?
         def has_other_neighbour(k, exclude_idx):
@@ -778,15 +820,17 @@ class GraSMoSSearch:
         rot_axis = rand_vec / rn
 
         # ── Large rotation angle: uniform in [π/6, π/2] (~30°-90°) ──
-        # Both fragments rotate in the same direction → rigid bond rotation,
-        # preserving |i−j| at all angles (Rodrigues on the same axis).
+        # The two fragments rotate in opposite directions, producing a
+        # topology-changing twist (generalised Stone-Wales transformation).
+        # Bond length |i−j| is preserved because both endpoints rotate by the
+        # same absolute angle about the midpoint (Rodrigues on same axis).
         theta = np.random.uniform(np.pi / 6.0, np.pi / 2.0)
-        # Random sign: +θ for both groups, or −θ for both
+        # Random sign: +θ for group_i, -θ for group_j (or vice versa)
         sign = 1.0 if np.random.random() < 0.5 else -1.0
 
         # ── Build the two neighbour groups from the adjacency ──
         A = self._build_weighted_adjacency(
-            atoms, energy_factors=self._get_energy_factors(atoms))
+            atoms, energy_factors=self._get_energy_factors(atoms), cached_A=getattr(self, '_cached_base_A', None))
         group_i = {i}
         group_j = {j}
         for k in range(self.n_atoms):
@@ -813,7 +857,7 @@ class GraSMoSSearch:
                 N[3 * idx:3 * idx + 3] = v_rot - v
 
         rotate_group(group_i, sign * theta)
-        rotate_group(group_j, sign * theta)  # same direction — rigid bond rotation
+        rotate_group(group_j, -sign * theta)  # opposite direction — bond topology switch
 
         return N
 
@@ -919,7 +963,7 @@ class GraSMoSSearch:
         from networkx.algorithms.community import louvain_communities
 
         energy_factors = self._get_energy_factors(atoms)
-        A = self._build_weighted_adjacency(atoms, energy_factors=energy_factors)
+        A = self._build_weighted_adjacency(atoms, energy_factors=energy_factors, cached_A=getattr(self, '_cached_base_A', None))
         # Map global atom indices to contiguous graph node ids, skipping
         # immobile and fully isolated atoms.
         mobile_indices = [i for i in range(self.n_atoms) if self.mobile_mask[i]]
@@ -1048,7 +1092,8 @@ class GraSMoSSearch:
             if the graph is trivial.
         """
         A = self._build_weighted_adjacency(atoms,
-                                            energy_factors=self._get_energy_factors(atoms))
+                                            energy_factors=self._get_energy_factors(atoms),
+                                            cached_A=getattr(self, '_cached_base_A', None))
         n = A.shape[0]
 
         # Restrict to mobile atoms for the eigen-decomposition
@@ -1074,13 +1119,16 @@ class GraSMoSSearch:
         for k in range(1, max_k):  # skip eigenvalue 0 (trivial mode)
             vec_mob = eigenvectors[:, k]  # shape (n_mob,)
             # Expand to full (3 * n_atoms) space: each atom gets its scalar
-            # multiplied by a random 3D direction to break isotropy.
-            rand_dirs = np.random.randn(n, 3)
-            rand_dirs /= (np.linalg.norm(rand_dirs, axis=1, keepdims=True) + 1e-12)
+            # multiplied by a single global random direction to preserve the
+            # collective nature of the soft mode.  Using per-atom random
+            # directions would destroy the collective character and turn the
+            # displacement into noise.
+            global_dir = np.random.randn(3)
+            global_dir /= (np.linalg.norm(global_dir) + 1e-12)
             mode_full = np.zeros(3 * n)
             for local_i, global_i in enumerate(mobile_indices):
                 mode_full[3 * global_i:3 * global_i + 3] = (
-                    vec_mob[local_i] * rand_dirs[global_i]
+                    vec_mob[local_i] * global_dir
                 )
             modes.append(mode_full)
 
@@ -1358,6 +1406,10 @@ class GraSMoSSearch:
         for step in range(steps):
             print(f"\n------------- GraSMoS Step {step + 1}/{steps} -------------")
             basin_energy = self._get_real_energy(basin_atoms)  # already relaxed
+            # Cache the base adjacency matrix once per step (without energy
+            # factors) so that graph methods can reuse it instead of
+            # rebuilding the O(n^2) distance matrix repeatedly.
+            self._cached_base_A = self._build_weighted_adjacency(basin_atoms)
             N0 = self._generate_random_direction(basin_atoms)
             if self.output_xyz:
                 displace0=get_displace(N0.copy(),self.mobile_mask,self.n_mobile,self.average_dr,self.max_dr) # 很奇怪这里如果不copy会影响rotation！！！
@@ -1366,7 +1418,7 @@ class GraSMoSSearch:
             climb_atoms = basin_atoms.copy() # climbing structure
             gaussian_params = []
             prev_climb_energy = basin_energy  # Track energy for adaptive width
-            adaptive_gw = None                # Adaptive Gaussian width (None = auto-initialize)
+            adaptive_gw = self.gaussian_width  # Start with user-configured (or default) width
 
             # ── Per-scheme parameter overrides (restored after step) ──
             _saved = {}
@@ -1523,15 +1575,16 @@ class GraSMoSSearch:
                     is_new_minimum = True
                     self._add_to_pool(basin_atoms)
                 else:
-                    # Duplicate structure, but still update init_atoms to explore from different point
-                    # This prevents getting stuck in the same location
-                    print("Structure is duplicate, not added to pool")
-                    self._add_to_pool(basin_atoms) # still add to pool for the debug stage
-                    # No need to update pool
+                    # Duplicate of an existing minimum — accepted by Metropolis
+                    # but not a new unique structure.  Still write to trace file
+                    # for debugging, but do NOT add to the unique minima pool.
+                    print("Structure is duplicate, accepted but not added to unique pool")
+                    self._write_trace(basin_atoms)
             else:
                 print(f"Reject new basin structure: ΔE = {delta_E:.6f} eV, P = {accept_prob:.4f}")
-                # do not change basin_atoms, keep original basin_atoms as the current structure in Mento Carlo
-                self._add_to_pool(new_basin_atoms)
+                # Rejected by Metropolis — do not change basin_atoms and do NOT
+                # add to the unique minima pool.  Still write to trace for debug.
+                self._write_trace(new_basin_atoms)
 
             # ── Adaptive mode tracking ──
             # Skip when overlap forced rejection — it reflects parameter
@@ -1584,11 +1637,16 @@ class GraSMoSSearch:
 
     def _bias_dimer_rotation(self, atoms, N0):
         """
-        Implement bias dimer rotation method according to SSW paper (Eq. 3-6)
-        Uses proper dimer method to find the lowest curvature direction with bias potential
-        
+        DEPRECATED: This manual dimer implementation has a physical error
+        (F0 ≈ -F1 approximation) and is NOT used in production.  The ASE-based
+        _bias_dimer_rotation_ase is the correct, active method.
+
+        Original description: Implement bias dimer rotation method according
+        to SSW paper (Eq. 3-6). Uses proper dimer method to find the lowest
+        curvature direction with bias potential.
+
         Reference: Shang & Liu, J. Chem. Phys. 139, 244104 (2013)
-        
+
         Parameters:
             atoms: Current atomic structure (at minimum R_m)
             initial_direction: Initial search direction N^0
@@ -1701,7 +1759,7 @@ class GraSMoSSearch:
                     n_vec = N[3*i:3*i+3]
 
                     if(self.mobile_mask[i]):
-                        print(f"Atom {i:3d}: N_i=[{n_vec[0]:8.4f}, {n_vec[1]:8.4f}, {n_vec[2]:8.4f}], |N_i|={ns_mag:.4f}")
+                        print(f"Atom {i:3d}: N_i=[{n_vec[0]:8.4f}, {n_vec[1]:8.4f}, {n_vec[2]:8.4f}], |N_i|={np.linalg.norm(n_vec):.4f}")
         
         print()
         return self._remove_translation(atoms,N)   # Return optimized direction N^1 with original magnitude
@@ -1847,6 +1905,13 @@ class GraSMoSSearch:
                     info.append(f"{title} = {data_list[i]}")
                 print(" | ".join(info))
 
-    def _normalize(self,N):
-        """Normalize N vector"""
-  
+    def _normalize(self, N):
+        """Normalize N vector. Zero out non-mobile atoms first, then normalize."""
+        N_mask = np.zeros_like(N)
+        for i in range(self.n_atoms):
+            if self.mobile_mask[i]:
+                N_mask[3*i:3*i+3] = N[3*i:3*i+3]
+        norm = np.linalg.norm(N_mask)
+        if norm < 1e-12:
+            return N_mask
+        return N_mask / norm
