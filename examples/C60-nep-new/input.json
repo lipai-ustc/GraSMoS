@@ -15,20 +15,16 @@
     "random_direction": {
       "mode": ["thermo","atomic","nl","community","bond_switch","laplacian"],
       "ratio": [
-        [[0.00, 0.00, 1.00, 0.00, 0.00, 0.00], 0.35, {"max_dr": 1.0, "average_dr": 0.4}],
-        [[0.20, 0.00, 0.80, 0.00, 0.00, 0.00], 0.15, {"max_dr": 0.8, "average_dr": 0.3}],
-        [[0.00, 0.00, 0.00, 0.00, 1.00, 0.00], 0.12, {"max_dr": 2.0, "average_dr": 0.6, "gaussian_height": 1.2, "max_gaussians": 30, "rotation_param": null}],
-        [[0.00, 0.00, 0.00, 0.00, 0.00, 1.00], 0.12, {"max_dr": 0.3, "average_dr": 0.1}],
-        [[0.20, 0.80, 0.00, 0.00, 0.00, 0.00], 0.12, {"max_dr": 0.5, "average_dr": 0.2}],
-        [[0.00, 0.00, 0.00, 1.00, 0.00, 0.00], 0.10, {"max_dr": 0.5, "average_dr": 0.2}],
-        [[0.10, 0.10, 0.30, 0.15, 0.15, 0.20], 0.04]
+        [[0.10, 0.10, 0.30, 0.20, 0.15, 0.15], 0.40, {"max_dr": 2.0, "average_dr": 0.6}],
+        [[0.10, 0.10, 0.30, 0.20, 0.15, 0.15], 0.35, {"max_dr": 1.0, "average_dr": 0.3}],
+        [[0.10, 0.10, 0.30, 0.20, 0.15, 0.15], 0.25, {"max_dr": 0.4, "average_dr": 0.1}]
       ],
       "rotation_param": 8,
       "AE_factor": 1,
       "adaptive": true,
       "adaptive_interval": 20,
       "adaptive_alpha": 3.0,
-      "adaptive_floor": 0.02,
+      "adaptive_floor": 0.05,
       "adaptive_smoothing": 0.5,
       "atomic_energy_calculator": {"type": "nep", "model": "C.txt"},
       "climbing_optimizer": {"max_steps": 100, "fmax": 0.05, "relaxed_fmax": 0.1, "adaptive_relaxation": true}
