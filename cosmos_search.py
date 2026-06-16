@@ -1587,11 +1587,16 @@ class GraSMoSSearch:
                 self._write_trace(new_basin_atoms)
 
             # ── Adaptive mode tracking ──
-            # Skip when overlap forced rejection — it reflects parameter
-            # settings, not the scheme's true quality.
-            if self.adaptive and not overlap:
-                self._update_mode_stats(self._last_scheme, delta_E,
-                                        metrop_accepted, is_new_minimum)
+            # Overlap steps are tracked as rejections so that the adaptive
+            # system penalises schemes that frequently produce atom overlaps.
+            if self.adaptive:
+                if overlap:
+                    # Record as a rejected step with zero energy drop
+                    self._update_mode_stats(self._last_scheme, 1000.0,
+                                            False, False)
+                else:
+                    self._update_mode_stats(self._last_scheme, delta_E,
+                                            metrop_accepted, is_new_minimum)
                 self._step_counter += 1
                 if self._step_counter % self.adaptive_interval == 0:
                     self._recompute_adaptive_weights()
