@@ -1263,17 +1263,24 @@ class GraSMoSSearch:
             blended = blended / blended.sum()
             self.rd_ratio_scheme = blended.tolist()
 
+        # ── Always print a compact one-line summary for grepability ──
+        parts = []
+        for s in range(n_schemes):
+            ss = self._scheme_stats.get(s, {})
+            c = max(ss.get('calls', 0), 1)
+            w = self.rd_ratio_mode[s]
+            dom = self.rd_mode[np.argmax(w)] if max(w) > 0.3 else 'mix'
+            parts.append(f"{s}={self.rd_ratio_scheme[s]:.3f}({dom})")
+        print(f"ADAPTIVE | {' '.join(parts)}")
+
         if self.debug:
-            print("\n--- Adaptive scheme weights updated ---")
             for s in range(n_schemes):
                 ss = self._scheme_stats.get(s, {})
                 c = max(ss.get('calls', 0), 1)
-                print(f"  Scheme {s}: calls={c:4d}  "
-                      f"acc_rate={ss.get('accepted',0)/c:.2f}  "
-                      f"avg_drop={ss.get('energy_drop',0)/c:.3f}  "
-                      f"prob={self.rd_ratio_scheme[s]:.3f}  "
-                      f"modes={self.rd_ratio_mode[s]}")
-            print("")
+                print(f"  S{s}: calls={c:4d}  "
+                      f"acc={ss.get('accepted',0)/c:.2f}  "
+                      f"drop={ss.get('energy_drop',0)/c:.3f}  "
+                      f"p={self.rd_ratio_scheme[s]:.3f}")
 
     def _min_pair_distance(self, atoms):
         """
@@ -1842,11 +1849,4 @@ class GraSMoSSearch:
 
     def _normalize(self,N):
         """Normalize N vector"""
-        N_mask=np.zeros_like(N)
-        for i in range(self.n_atoms):
-            if self.mobile_mask[i]:
-                N_mask[3*i:3*i+3]=N[3*i:3*i+3]
-        try:
-            return N_mask / np.linalg.norm(N_mask)
-        except:
-            raise ValueError("Failed to normalize N vector")
+  
