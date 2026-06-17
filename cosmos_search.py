@@ -1533,7 +1533,7 @@ class GraSMoSSearch:
             N0 = self._generate_random_direction(basin_atoms)
             if self.output_xyz:
                 displace0=get_displace(N0.copy(),self.mobile_mask,self.n_mobile,self.average_dr,self.max_dr) # 很奇怪这里如果不copy会影响rotation！！！
-                print_xyz(basin_atoms,filename=f"climb_{step}.xyz",energy=basin_energy,bias_energy=0,extra_info={"step": step+1, "scheme": scheme, "modes": str(self.rd_mode), "mode_weights": str(self.rd_ratio_mode[scheme]), "phase": "basin"},displace = displace0)
+                print_xyz(basin_atoms,filename=f"climb_{step}.xyz",energy=basin_energy,bias_energy=0,extra_info={"step": step+1, "scheme": self._last_scheme, "modes": str(self.rd_mode), "mode_weights": str(self.rd_ratio_mode[self._last_scheme]), "phase": "basin"},displace = displace0)
                 
             climb_atoms = basin_atoms.copy() # climbing structure
             gaussian_params = []
