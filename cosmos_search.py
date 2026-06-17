@@ -1533,7 +1533,7 @@ class GraSMoSSearch:
             N0 = self._generate_random_direction(basin_atoms)
             if self.output_xyz:
                 displace0=get_displace(N0.copy(),self.mobile_mask,self.n_mobile,self.average_dr,self.max_dr) # 很奇怪这里如果不copy会影响rotation！！！
-                print_xyz(basin_atoms,filename=f"climb_{step}.xyz",energy=basin_energy,bias_energy=0, displace = displace0)
+                print_xyz(basin_atoms,filename=f"climb_{step}.xyz",energy=basin_energy,bias_energy=0,extra_info={"step": step+1, "scheme": scheme, "modes": str(self.rd_mode), "mode_weights": str(self.rd_ratio_mode[scheme]), "phase": "basin"},displace = displace0)
                 
             climb_atoms = basin_atoms.copy() # climbing structure
             gaussian_params = []
@@ -1600,7 +1600,7 @@ class GraSMoSSearch:
                 tBE=climb_atoms.get_potential_energy()   # potential energy on bias potential energy surface
                 climb_energy = self._get_real_energy(climb_atoms) # real energy on real potential energy surface
                 if self.output_xyz:  # before local minimize
-                    print_xyz(climb_atoms,filename=f"climb_{step}.xyz",energy=climb_energy,bias_energy=tBE,displace=displace)
+                    print_xyz(climb_atoms,filename=f"climb_{step}.xyz",energy=climb_energy,bias_energy=tBE,extra_info={"step": step+1, "scheme": scheme, "gaussian_n": n, "phase": "climb_before_min"},displace=displace)
 
                 # --- Adaptive climbing fmax ---
                 # Use relaxed precision during climbing to save cost; only final relaxation needs tight fmax
@@ -1622,7 +1622,7 @@ class GraSMoSSearch:
                 tBE=climb_atoms.get_potential_energy()   # potential energy on bias potential energy surface
                 climb_energy = self._get_real_energy(climb_atoms) # real energy on real potential energy surface
                 if self.output_xyz: # after local minimize
-                    print_xyz(climb_atoms,filename=f"climb_{step}.xyz",energy=climb_energy,bias_energy=tBE,displace=displace)
+                    print_xyz(climb_atoms,filename=f"climb_{step}.xyz",energy=climb_energy,bias_energy=tBE,extra_info={"step": step+1, "scheme": scheme, "gaussian_n": n, "phase": "climb_after_min"},displace=displace)
 
                 # --- Adaptive Gaussian width update ---
                 # After optimization, check energy change to adapt width for next Gaussian.
@@ -1679,7 +1679,7 @@ class GraSMoSSearch:
                 new_basin_energy = 999.999
 
             if self.output_xyz:
-                print_xyz(new_basin_atoms,filename=f"climb_{step}.xyz",energy=new_basin_energy,bias_energy=0,displace=displace0)
+                print_xyz(new_basin_atoms,filename=f"climb_{step}.xyz",energy=new_basin_energy,bias_energy=0,extra_info={"step": step+1, "scheme": scheme, "overlap": overlap, "phase": "final"},displace=displace0)
             
             # Algorithm Step 7: Use Metropolis criterion to accept or reject
             delta_E = new_basin_energy - basin_energy

@@ -513,13 +513,17 @@ class DeepMDCalculatorWithAtomicEnergy(Calculator):
             self.calculate(atoms)
         return self.results.get('energies', np.zeros(len(self.atoms)))
 
-def print_xyz(atoms, filename, energy, bias_energy, *args, **kwargs):
+def print_xyz(atoms, filename, energy, bias_energy, extra_info=None, *args, **kwargs):
     """
     Output xyz structure of atoms, allowing arbitrary number of atom-related parameters
 
     Parameters:
         atoms: ASE Atoms object
         filename: Optional, output file path. If None, print to console
+        energy: Total energy of the structure
+        bias_energy: Bias potential energy (0 if on real surface)
+        extra_info: Optional dict of additional info fields to write into atoms.info
+            e.g., {"scheme": 2, "modes": "atomic", "gaussian_n": 5}
         *args: Optional, list of atom-related parameters, each element is a tuple (list, title)
             where list is the atom parameter array, title is the parameter name
         **kwargs: Optional, keyword argument form of atom-related parameters
@@ -549,12 +553,19 @@ def print_xyz(atoms, filename, energy, bias_energy, *args, **kwargs):
         params.append((value, key))
     
     atoms_copy = atoms.copy()
+    atoms_copy.info['energy'] = energy
+    atoms_copy.info['bias_energy'] = bias_energy
+    # Write extra info fields (scheme, modes, gaussian number, etc.)
+    if extra_info is not None:
+        for key, value in extra_info.items():
+            atoms_copy.info[key] = value
     
-    for param_list, param_title in params:
-        atoms_copy.info['energy'] = energy
-        atoms_copy.info['bias_energy'] = bias_energy
-        atoms_copy.info['name'] = param_title
-        atoms_copy.arrays['forces'] =  param_list
+    if params:
+        for param_list, param_title in params:
+            atoms_copy.info['name'] = param_title
+            atoms_copy.arrays['forces'] = param_list
+            write("xyz/" + filename, atoms_copy, append=True)
+    else:
         write("xyz/" + filename, atoms_copy, append=True)
 
 def get_displace(N_in, mobile_mask, n_mobile, average_dr, max_dr):
