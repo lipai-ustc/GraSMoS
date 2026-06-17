@@ -1672,6 +1672,12 @@ class GraSMoSSearch:
             # ── Overlap guard: force rejection if atoms still overlap ──
             overlap = self._min_pair_distance(new_basin_atoms) < 0.4
 
+            if overlap:
+                # Atom overlap means the potential energy is physically meaningless
+                # (atoms too close → force fields give garbage).  Set to a large
+                # positive value so it never looks like a valid minimum.
+                new_basin_energy = 999.999
+
             if self.output_xyz:
                 print_xyz(new_basin_atoms,filename=f"climb_{step}.xyz",energy=new_basin_energy,bias_energy=0,displace=displace0)
             
