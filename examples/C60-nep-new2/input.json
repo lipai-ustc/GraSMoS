@@ -1,21 +1,206 @@
 {
-  "system": {"name": "C60", "task": "global_search"},
-  "potential": {"type": "nep", "model": "C.txt"},
-  "monte_carlo": {"steps": 5000, "temperature": 1500},
+  "system": {
+    "name": "C60",
+    "task": "global_search"
+  },
+  "potential": {
+    "type": "nep",
+    "model": "C.txt"
+  },
+  "monte_carlo": {
+    "steps": 5000,
+    "temperature": 1500
+  },
   "climbing": {
     "random_direction": {
-      "mode": ["thermo","atomic","nl","atnl","community","bond_switch","laplacian"],
+      "mode": [
+        "thermo",
+        "atomic",
+        "nl",
+        "atnl",
+        "community",
+        "bond_switch",
+        "laplacian"
+      ],
       "ratio": [
-        [[0.20,0.80,0.00,0.00,0.00,0.00,0.00], 0.15],
-        [[0.20,0.80,0.00,0.00,0.00,0.00,0.00], 0.10, {"max_dr": 0.3, "average_dr": 0.10}],
-        [[0.20,0.00,0.80,0.00,0.00,0.00,0.00], 0.08],
-        [[0.20,0.00,0.80,0.00,0.00,0.00,0.00], 0.05, {"max_dr": 0.3, "average_dr": 0.10}],
-        [[0.20,0.00,0.00,0.80,0.00,0.00,0.00], 0.10],
-        [[0.20,0.00,0.00,0.00,0.80,0.00,0.00], 0.08],
-        [[0.20,0.00,0.00,0.00,0.00,0.80,0.00], 0.05, {"max_dr": 0.6, "average_dr": 0.18, "rotation_param": null}],
-        [[0.20,0.00,0.00,0.00,0.00,0.80,0.00], 0.05, {"max_dr": 0.3, "average_dr": 0.10, "rotation_param": null}],
-        [[0.20,0.00,0.00,0.00,0.00,0.00,0.80], 0.10],
-        [[0.20,0.00,0.00,0.00,0.00,0.00,0.80], 0.07, {"max_dr": 0.3, "average_dr": 0.10}]
+        [
+          [
+            0.2,
+            0.8,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          0.12,
+          {
+            "max_gaussians": 10
+          }
+        ],
+        [
+          [
+            0.2,
+            0.8,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          0.08,
+          {
+            "max_dr": 0.3,
+            "average_dr": 0.1,
+            "max_gaussians": 10
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.8,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          0.08,
+          {
+            "max_gaussians": 10
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.8,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          0.05,
+          {
+            "max_dr": 0.3,
+            "average_dr": 0.1,
+            "max_gaussians": 10
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.0,
+            0.8,
+            0.0,
+            0.0,
+            0.0
+          ],
+          0.08,
+          {
+            "max_gaussians": 10
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.0,
+            0.0,
+            0.8,
+            0.0,
+            0.0
+          ],
+          0.06,
+          {
+            "max_gaussians": 10
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.8,
+            0.0
+          ],
+          0.05,
+          {
+            "max_dr": 0.4,
+            "average_dr": 0.12,
+            "rotation_param": null
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.8,
+            0.0
+          ],
+          0.08,
+          {
+            "max_dr": 0.3,
+            "average_dr": 0.1,
+            "rotation_param": null
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.8,
+            0.0
+          ],
+          0.05,
+          {
+            "max_dr": 0.2,
+            "average_dr": 0.07,
+            "rotation_param": null,
+            "max_gaussians": 15
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.8
+          ],
+          0.1,
+          {
+            "max_gaussians": 10
+          }
+        ],
+        [
+          [
+            0.2,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.8
+          ],
+          0.07,
+          {
+            "max_dr": 0.3,
+            "average_dr": 0.1,
+            "max_gaussians": 10
+          }
+        ]
       ],
       "rotation_param": 15,
       "AE_factor": 2.0,
@@ -25,7 +210,10 @@
       "adaptive_alpha": 2.0,
       "adaptive_floor": 0.01,
       "adaptive_smoothing": 0.6,
-      "atomic_energy_calculator": {"type": "nep", "model": "C.txt"},
+      "atomic_energy_calculator": {
+        "type": "nep",
+        "model": "C.txt"
+      },
       "climbing_optimizer": {
         "max_steps": 100,
         "fmax": 0.05,
@@ -33,10 +221,26 @@
         "adaptive_relaxation": true
       }
     },
-    "gaussian": {"height": 0.5, "width": 0.15, "Nmax": 20},
-    "displace": {"average_dr": 0.12, "max_dr": 0.3}
+    "gaussian": {
+      "height": 0.5,
+      "width": 0.15,
+      "Nmax": 20
+    },
+    "displace": {
+      "average_dr": 0.12,
+      "max_dr": 0.3
+    }
   },
-  "optimizer": {"max_steps": 150, "fmax": 0.03},
-  "mobile_control": {"mode": "all"},
-  "output": {"directory": "grasmos_output", "rd_xyz": true, "debug": false}
+  "optimizer": {
+    "max_steps": 150,
+    "fmax": 0.03
+  },
+  "mobile_control": {
+    "mode": "all"
+  },
+  "output": {
+    "directory": "grasmos_output",
+    "rd_xyz": true,
+    "debug": false
+  }
 }

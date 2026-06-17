@@ -1557,6 +1557,12 @@ class GraSMoSSearch:
                         _saved['quadra_a'] = self.quadra_a
                         self.quadra_a = rp
 
+            # Track climb stagnation: how many consecutive Gaussians
+            # the real energy stays above basin_energy.  If stuck for too
+            # long the climb is unlikely to escape, so stop early.
+            _stagnation_count = 0
+            _stagnation_limit = 5  # stop after 5 Gaussians with no improvement
+
             for n in range(1, self.max_gaussians + 1):
                 # ── Dimer rotation (skipped for topology-changing moves whose
                 #     reaction coordinate has high curvature) ──
@@ -1641,12 +1647,19 @@ class GraSMoSSearch:
                 
                 # Algorithm Step 5: Check stopping condition
                 # Stop if: (i) reached max Gaussians H, or (ii) structure relaxed back below starting energy
+                # (iii) climb is stuck — real energy hasn't improved for several Gaussians
                 if n >= self.max_gaussians:
                     print(f"\n--- Climb end ---\n n_gaussian={n}, reached maximum Gaussians")
                     break
                 elif climb_energy <= basin_energy-0.05:
                     print(f"\n--- Climb end ---\n n_gaussian={n}, energy {climb_energy:.6f} eV <= basin {basin_energy:.6f} eV")
                     break
+                else:
+                    # Real energy is still above basin — track stagnation
+                    _stagnation_count += 1
+                    if _stagnation_count >= _stagnation_limit and n >= 5:
+                        print(f"\n--- Climb end ---\n n_gaussian={n}, climb stagnated ({_stagnation_count} Gaussians above basin)")
+                        break
             
             temp_average_dr, temp_max_dr = calc_average_max_displace(displace,self.mobile_mask,self.n_mobile)
             print(f"n_mobile,Norm_dist, average_dr,max_dr: {self.n_mobile}, {Norm_dist:.3f}, {temp_average_dr:.3f}, {temp_max_dr:.3f}")
@@ -1666,6 +1679,7 @@ class GraSMoSSearch:
             delta_E = new_basin_energy - basin_energy
             if overlap:
                 delta_E = 1000.0  # force rejection
+                print(f"OVERLAP detected: min_pair_dist={self._min_pair_distance(new_basin_atoms):.3f} Å, forcing rejection")
             if delta_E > 0:
                 accept_prob = np.exp(-delta_E / (self.kB * self.temperature))
             else:
